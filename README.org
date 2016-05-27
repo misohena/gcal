@@ -1,0 +1,43 @@
+* Google Calendar Utilities for Emacs
+** gcal.el
+
+Settings:
+
+#+BEGIN_SRC elisp
+(setq gcal-client-id "xxxxxxxxx.apps.googleusercontent.com")
+(setq gcal-client-secret "xxxx-XxxxXxxXXXxx") ;;API-KEY
+#+END_SRC
+
+Usege:
+
+#+BEGIN_SRC elisp
+(require 'gcal)
+
+;; list my calendars
+(gcal-calendar-list-list) ;; Calendar List
+
+;; list events
+(gcal-events-list
+ "example@gmail.com" ;;<- calendar-id
+  `((timeMin . ,(gcal-datetime 2016 5 1))
+    (timeMax . ,(gcal-datetime 2016 6 1))))
+
+;; insert event
+(gcal-events-insert
+ "example@gmail.com"
+ `((start . ,(gcal-gtime 2016 5 27))
+   (end . ,(gcal-gtime 2016 5 28))
+  (summary . "My Special Holiday")))
+
+;; delete event
+(gcal-events-delete "example@gmail.com" "{event id}")
+#+END_SRC
+
+** gcal-org.el
+
+Usage:
+
+#+BEGIN_SRC elisp
+(require 'gcal-org)
+(gcal-org-push-file "example@gmail.com" "~/my-schedule.org")
+#+END_SRC
