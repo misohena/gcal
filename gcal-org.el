@@ -326,12 +326,15 @@ base32hexへ変換します。"
          (ts-prefix (gcal-org-event-ts-prefix oevent))
          (ts-start  (gcal-org-event-ts-start oevent))
          (ts-end    (gcal-org-event-ts-end oevent))
-         (location  (gcal-org-event-location oevent)))
+         (location  (gcal-org-event-location oevent))
+         (ord  (gcal-org-event-ord oevent)))
     `((id . ,(gcal-oevent-gevent-id oevent))
       (status . "confirmed")
       (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
       (start . ,(gcal-ts-to-gtime ts-start))
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
+      (extendedProperties . ((private . ((gcalTsPrefix . ,ts-prefix)
+                                         (gcalOrd . ,ord)))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -396,11 +399,15 @@ base32hexへ変換します。"
          (ord (cdr id-ord))
          (status (cdr (assq 'status gevent)))
          (start (cdr (assq 'start gevent)))
-         (end (cdr (assq 'end gevent)))
+         (end   (cdr (assq 'end gevent)))
+         (ts-start (if start (gcal-ts-from-gtime start)))
+         (ts-end   (if start (gcal-ts-from-gtime end)))
          (created (cdr (assq 'created gevent)))
          (updated (cdr (assq 'updated gevent)))
          (summary (cdr (assq 'summary gevent)))
-         (location (cdr (assq 'summary gevent))))
+         (location (cdr (assq 'location gevent)))
+         (ex-props (cdr (assq 'private (cdr (assq 'extendedProperties gevent)))))
+         (ts-prefix (cdr (assq 'gcalTsPrefix ex-props))) )
 
     (if (not (stringp id))
         (message "invalid event id found '%s'" id)
@@ -408,10 +415,14 @@ base32hexへ変換します。"
           (make-gcal-org-event
            :id id
            :ord ord
-           :summary summary
-           :ts-prefix nil
-           :ts-start (gcal-ts-from-gtime start)
-           :ts-end (gcal-ts-from-gtime end)
+           :summary (if (and (stringp ts-prefix)
+                             (string= ts-prefix "DEADLINE")
+                             (>= (length summary) 3)
+                             (string= (substring summary 0 3) "DL:"))
+                        (substring summary 3) summary) ;;strip "DL:"
+           :ts-prefix ts-prefix
+           :ts-start ts-start
+           :ts-end (gcal-ts-end-inclusive ts-start ts-end)
            :location location
   )))))
 
