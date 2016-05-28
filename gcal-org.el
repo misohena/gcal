@@ -372,6 +372,70 @@ base32hexへ変換します。"
 
 
 
+
+
+;;
+;; pull oevents from Google Calendar
+;;
+
+(defun gcal-org-pull-oevents (calendar-id &optional params)
+  "Download calendar events as list of oevent."
+  (let ((gevents (gcal-events-list calendar-id params)))
+    (if (gcal-failed-p gevents)
+        (message "error %s" gevents)
+      ;; succeeded
+      (delq
+       nil
+       (mapcar #'gcal-oevent-from-gevent (cdr (assq 'items gevents)))))))
+
+(defun gcal-oevent-from-gevent (gevent)
+  "Google Calendar event to oevent(gcal-org-event object)"
+  (let* ((gid (cdr (assq 'id gevent)))
+         (id-ord (gcal-oevent-id-ord-from-gevent-id gid))
+         (id (car id-ord))
+         (ord (cdr id-ord))
+         (status (cdr (assq 'status gevent)))
+         (start (cdr (assq 'start gevent)))
+         (end (cdr (assq 'end gevent)))
+         (created (cdr (assq 'created gevent)))
+         (updated (cdr (assq 'updated gevent)))
+         (summary (cdr (assq 'summary gevent)))
+         (location (cdr (assq 'summary gevent))))
+
+    (if (not (stringp id))
+        (message "invalid event id found '%s'" id)
+      (if (not (string= status "cancelled"))
+          (make-gcal-org-event
+           :id id
+           :ord ord
+           :summary summary
+           :ts-prefix nil
+           :ts-start (gcal-ts-from-gtime start)
+           :ts-end (gcal-ts-from-gtime end)
+           :location location
+  )))))
+
+(defun gcal-oevent-id-ord-from-gevent-id (id)
+  "Convert Google Calendar's event id to oevent's :id and :ord."
+  (cond
+   ;; base32hex-uuid + ord
+   ((gcal-oevent-base32hex-uuid-with-ord-p id)
+    (cons
+     (gcal-uuid-from-base32hex (substring id 0 26))
+     (string-to-number (substring id 26 (+ 26 5)))))
+
+   ;; base32hex-uuid
+   ((gcal-oevent-base32hex-uuid-p id)
+    (cons (gcal-uuid-from-base32hex id) 0))
+
+   ;; unknown
+   (t
+    (cons id 0))))
+
+
+
+
+
 ;;
 ;; org-mode timestamp representation
 ;;
@@ -408,6 +472,19 @@ base32hexへ変換します。"
 (defun gcal-ts-to-gtime (ts)
   "タイムスタンプをGoogle Calendarの時間表現へ変換します。"
   (gcal-time-to-gtime (gcal-ts-to-time ts) (gcal-ts-date-only ts)))
+
+
+(defun gcal-ts-from-gtime (gtime)
+  "Google Calendarのイベント時間表現からタイムスタンプへ変換します。"
+  (let* ((time (gcal-time-from-gtime gtime))
+         (dect (if time (decode-time time))))
+    (if dect
+        (if (gcal-gtime-date-str gtime)
+            ;; date-only
+            (list (nth 5 dect) (nth 4 dect) (nth 3 dect) nil nil)
+          ;; date and time
+          (list (nth 5 dect) (nth 4 dect) (nth 3 dect) (nth 2 dect) (nth 1 dect))))))
+
 
 
 (provide 'gcal-org)

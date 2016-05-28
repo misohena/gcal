@@ -463,6 +463,34 @@ Example:
 (defun gcal-datetime (y m d &optional hh mm)
   (gcal-time-format (gcal-time-from-ymdhm y m d hh mm) nil))
 
+  ;; google => emacs
+
+;;(gcal-time-parse "2014-12-13T10:00:00+09:00")
+;;(gcal-time-parse "2015-03-06T15:42:32.354Z")
+(defun gcal-time-parse (str)
+  (parse-iso8601-time-string str))
+
+(defun gcal-gtime-date-str (gtime)
+  "ex: ((date . \"2016-05-28\")) => \"2016-05-28\" or nil"
+  (cdr (assq 'date gtime)))
+
+(defun gcal-gtime-date-time-str (gtime)
+  "ex: ((dateTime . \"2009-10-25T11:00:54+09:00\")) => \"2009-10-25T11:00:54+09:00\" or nil"
+  (cdr (assq 'dateTime gtime)))
+
+(defun gcal-time-from-gtime (gtime)
+  (let ((date (gcal-gtime-date-str gtime)))
+    (if (stringp date)
+        (let ((d (parse-time-string date)))
+          (encode-time 0 0 0 (nth 3 d)(nth 4 d)(nth 5 d)))
+      (let ((datetime (gcal-gtime-date-time-str gtime)))
+        (if (stringp datetime)
+            (gcal-time-parse datetime))))))
+
+
+
+
+
 
 ;;
 ;; Utilities
