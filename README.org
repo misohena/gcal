@@ -66,6 +66,13 @@ Parse org & Upload
   "example@gmail.com"
   (gcal-org-parse-file "~/my-schedule.org")
   (gcal-org-parse-file "~/my-schedule.org.old"))
+
+;; Delete events from Google Calendar
+(gcal-org-push-oevents
+  "example@gmail.com"
+  nil
+  (gcal-org-parse-file "~/my-schedule.org"))
+
 #+END_SRC
 
 Download
