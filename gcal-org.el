@@ -335,8 +335,10 @@ base32hexへ変換します。"
       (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
       (start . ,(gcal-ts-to-gtime ts-start))
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
-      (extendedProperties . ((private . ((gcalTsPrefix . ,ts-prefix)
-                                         (gcalOrd . ,ord)))))
+      (extendedProperties
+       . ((private
+           . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
+              (gcalOrd . ,ord)))))
       ,@(if location `((location . ,location)))
       )))
 
