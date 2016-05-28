@@ -302,20 +302,23 @@ old-events will be destroyed."
 ;; convert oevent(Org-mode Event) to gevent(Google Calendar Event)
 ;;
 
-(defun gcal-uuid-to-event-id (uuid)
-  "UUIDをGoogle CalendarのイベントID表現へ変換します。
-
-現在の所単にハイフンを削除するだけです。将来的にはbase32へ変換す
-るかもしれません。"
-  (downcase (apply 'concat (split-string uuid "-"))))
+(defun gcal-oevent-id-to-gevent-id (uuid)
+  "oeventのID(UUID)をGoogle CalendarのイベントID表現へ変換します。
+base32hexへ変換します。"
+  ;; new method
+  (if (gcal-uuid-p uuid)
+      (downcase (gcal-uuid-to-base32hex uuid))
+    uuid))
 
 (defun gcal-oevent-gevent-id (oevent)
   "gcal-org-event構造体からGoogle CalendarのイベントIDを求めます。
 同一エントリー内に複数のタイムスタンプがある場合に別々のIDを振り
 ます。"
-  (format "%s%05d"
-          (gcal-uuid-to-event-id (gcal-org-event-id oevent))
-          (gcal-org-event-ord oevent)))
+  (let ((gid (gcal-oevent-id-to-gevent-id (gcal-org-event-id oevent)))
+        (ord (gcal-org-event-ord oevent)))
+    (if (= ord 0)
+        gid ;;0のときはそのまま。代表ID。Google Calendarから取り込んだイベントは必ずこれ。
+      (format "%s%05d" gid ord))))
 
 (defun gcal-oevent-to-gevent (oevent)
   "gcal-org-event構造体をGoogle Calendarのイベント表現へ変換します。"
@@ -331,6 +334,15 @@ old-events will be destroyed."
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
       ,@(if location `((location . ,location)))
       )))
+
+(defun gcal-oevent-base32hex-uuid-p (id)
+  ;; i5o7hja5ch1r14crqmp8g9mv6k
+  (and (gcal-base32hex-p id) (= (length id) 26)))
+
+(defun gcal-oevent-base32hex-uuid-with-ord-p (id)
+  ;; i5o7hja5ch1r14crqmp8g9mv6k00001
+  ;;;@todo check last 5 digits
+  (and (gcal-base32hex-p id) (= (length id) (+ 26 5))))
 
 
 ;;
