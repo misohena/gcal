@@ -29,22 +29,28 @@
 ;;; Code:
 
 
-;;
-;; parse org-mode document
-;;
-
 (require 'gcal)
 (require 'gcal-id)
 (require 'org-id)
 
-(defun make-gcal-org-event (&rest args) args)
-(defun gcal-org-event-id (oevent) (plist-get oevent :id))
-(defun gcal-org-event-ord (oevent) (plist-get oevent :ord))
-(defun gcal-org-event-summary (oevent) (plist-get oevent :summary))
-(defun gcal-org-event-ts-prefix (oevent) (plist-get oevent :ts-prefix))
-(defun gcal-org-event-ts-start (oevent) (plist-get oevent :ts-start))
-(defun gcal-org-event-ts-end (oevent) (plist-get oevent :ts-end))
-(defun gcal-org-event-location (oevent) (plist-get oevent :location))
+
+;;
+;; gcal-oevent object
+;;
+
+(defun make-gcal-oevent (&rest args) args)
+(defun gcal-oevent-id (oevent) (plist-get oevent :id))
+(defun gcal-oevent-ord (oevent) (plist-get oevent :ord))
+(defun gcal-oevent-summary (oevent) (plist-get oevent :summary))
+(defun gcal-oevent-ts-prefix (oevent) (plist-get oevent :ts-prefix))
+(defun gcal-oevent-ts-start (oevent) (plist-get oevent :ts-start))
+(defun gcal-oevent-ts-end (oevent) (plist-get oevent :ts-end))
+(defun gcal-oevent-location (oevent) (plist-get oevent :location))
+
+
+;;
+;; parse org-mode document
+;;
 
 (defun gcal-org-parse-file (file)
   "指定されたファイルからイベントを集めます。"
@@ -90,7 +96,7 @@
                             (plist-get ts :minute-end)))
                (same-entry-info  (assoc id entries))
                (same-entry-count (length (nth 1 same-entry-info)))
-               (oevent      (make-gcal-org-event
+               (oevent      (make-gcal-oevent
                              :id id
                              :ord same-entry-count
                              :summary summary
@@ -202,10 +208,10 @@ old-events will be destroyed."
     (gcal-oevents-diff
      old-events
      new-events
-     ;;(lambda (old-oe new-oe) (insert (format "mod %s\n" (gcal-org-event-summary new-oe))))
-     ;;(lambda (new-oe) (insert (format "add %s\n" (gcal-org-event-summary new-oe))))
-     ;;(lambda (old-oe) (insert (format "del %s\n" (gcal-org-event-summary old-oe))))
-     ;;(lambda (old-oe) (insert (format "eq %s\n" (gcal-org-event-summary old-oe))))
+     ;;(lambda (old-oe new-oe) (insert (format "mod %s\n" (gcal-oevent-summary new-oe))))
+     ;;(lambda (new-oe) (insert (format "add %s\n" (gcal-oevent-summary new-oe))))
+     ;;(lambda (old-oe) (insert (format "del %s\n" (gcal-oevent-summary old-oe))))
+     ;;(lambda (old-oe) (insert (format "eq %s\n" (gcal-oevent-summary old-oe))))
      ;; Change
      (lambda (old-oe new-oe)
        (setq result-events (gcal-org-push-oevents--check
@@ -235,7 +241,7 @@ old-events will be destroyed."
   (if (gcal-succeeded-p res)
       (if succ-oe (cons succ-oe result-events) result-events)
     (message "Failed to %s event '%s' err=%s"
-             op (gcal-org-event-summary (or succ-oe fail-oe)) res)
+             op (gcal-oevent-summary (or succ-oe fail-oe)) res)
     (if fail-oe (cons fail-oe result-events) result-events)))
 
 (defun gcal-org-push-oevents--insert (calendar-id new-oe)
@@ -262,8 +268,8 @@ old-events will be destroyed."
     (while (cdr curr)
       (let ((oe (cadr curr)))
         (when (and oe
-                   (equal (gcal-org-event-id oe) id)
-                   (equal (gcal-org-event-ord oe) ord))
+                   (equal (gcal-oevent-id oe) id)
+                   (equal (gcal-oevent-ord oe) ord))
           (setcdr curr (cddr curr)) ;;remove element
           (setq curr nil) ;;break loop
           (setq result oe)))
@@ -271,14 +277,14 @@ old-events will be destroyed."
     result))
 
 (defun gcal-oevents-diff (old-oevents new-oevents func-mod func-add func-del func-eq)
-  "gcal-org-eventのリスト二つを比較し、変更、追加、削除されたイベ
+  "gcal-oeventのリスト二つを比較し、変更、追加、削除されたイベ
 ントについて関数を適用します。"
   (let ((cons-old-oevents (cons nil old-oevents)))
     (loop for new-oe in new-oevents
           do (let ((old-oe (gcal-oevents-find-first-and-remove
                             cons-old-oevents
-                            (gcal-org-event-id new-oe)
-                            (gcal-org-event-ord new-oe))))
+                            (gcal-oevent-id new-oe)
+                            (gcal-oevent-ord new-oe))))
                (cond
                 ((null old-oe)
                  ;; new event
@@ -313,23 +319,23 @@ base32hexへ変換します。"
     uuid))
 
 (defun gcal-oevent-gevent-id (oevent)
-  "gcal-org-event構造体からGoogle CalendarのイベントIDを求めます。
+  "gcal-oevent構造体からGoogle CalendarのイベントIDを求めます。
 同一エントリー内に複数のタイムスタンプがある場合に別々のIDを振り
 ます。"
-  (let ((gid (gcal-oevent-id-to-gevent-id (gcal-org-event-id oevent)))
-        (ord (gcal-org-event-ord oevent)))
+  (let ((gid (gcal-oevent-id-to-gevent-id (gcal-oevent-id oevent)))
+        (ord (gcal-oevent-ord oevent)))
     (if (= ord 0)
         gid ;;0のときはそのまま。代表ID。Google Calendarから取り込んだイベントは必ずこれ。
       (format "%s%05d" gid ord))))
 
 (defun gcal-oevent-to-gevent (oevent)
-  "gcal-org-event構造体をGoogle Calendarのイベント表現へ変換します。"
-  (let* ((summary   (gcal-org-event-summary oevent))
-         (ts-prefix (gcal-org-event-ts-prefix oevent))
-         (ts-start  (gcal-org-event-ts-start oevent))
-         (ts-end    (gcal-org-event-ts-end oevent))
-         (location  (gcal-org-event-location oevent))
-         (ord  (gcal-org-event-ord oevent)))
+  "gcal-oevent構造体をGoogle Calendarのイベント表現へ変換します。"
+  (let* ((summary   (gcal-oevent-summary oevent))
+         (ts-prefix (gcal-oevent-ts-prefix oevent))
+         (ts-start  (gcal-oevent-ts-start oevent))
+         (ts-end    (gcal-oevent-ts-end oevent))
+         (location  (gcal-oevent-location oevent))
+         (ord  (gcal-oevent-ord oevent)))
     `((id . ,(gcal-oevent-gevent-id oevent))
       (status . "confirmed")
       (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
@@ -396,7 +402,7 @@ base32hexへ変換します。"
        (mapcar #'gcal-oevent-from-gevent (cdr (assq 'items gevents)))))))
 
 (defun gcal-oevent-from-gevent (gevent)
-  "Google Calendar event to oevent(gcal-org-event object)"
+  "Google Calendar event to oevent(gcal-oevent object)"
   (let* ((gid (cdr (assq 'id gevent)))
          (id-ord (gcal-oevent-id-ord-from-gevent-id gid))
          (id (car id-ord))
@@ -416,7 +422,7 @@ base32hexへ変換します。"
     (if (not (stringp id))
         (message "invalid event id found '%s'" id)
       (if (not (string= status "cancelled"))
-          (make-gcal-org-event
+          (make-gcal-oevent
            :id id
            :ord ord
            :summary (if (and (stringp ts-prefix)
@@ -465,8 +471,8 @@ base32hexへ変換します。"
 
 ;;         (loop for oevent in oevents
 ;;               do (when (and oevent
-;;                             ;;(not (org-id-find-id-in-file (gcal-org-event-id oevent) file)))
-;;                             (not (org-id-find (gcal-org-event-id oevent))))
+;;                             ;;(not (org-id-find-id-in-file (gcal-oevent-id oevent) file)))
+;;                             (not (org-id-find (gcal-oevent-id oevent))))
 ;;                    (gcal-org-insert-string-after-headline
 ;;                     (gcal-oevent-format oevent) headline)))))))
 
@@ -489,22 +495,22 @@ base32hexへ変換します。"
      ;; mod
      (lambda (old-oe new-oe)
        ;;@todo impl (push new-oe result-events)
-       (message "event modified on calendar '%s'" (gcal-org-event-summary old-oe))
+       (message "event modified on calendar '%s'" (gcal-oevent-summary old-oe))
        (push old-oe result-events))
      ;; add
      (lambda (new-oe)
-       (if (org-id-find-id-in-file (gcal-org-event-id new-oe) file)
-           (message "New event is already pulled '%s'" (gcal-org-event-summary new-oe))
+       (if (org-id-find-id-in-file (gcal-oevent-id new-oe) file)
+           (message "New event is already pulled '%s'" (gcal-oevent-summary new-oe))
          (save-window-excursion
            (save-excursion
              (set-buffer (find-file-noselect file))
              (gcal-org-insert-string-after-headline (gcal-oevent-format new-oe) headline)
-             (message "Add event %s" (gcal-org-event-summary new-oe))
+             (message "Add event %s" (gcal-oevent-summary new-oe))
              )))
        (push new-oe result-events))
      ;; del
      (lambda (old-oe)
-       (let* ((id (gcal-org-event-id old-oe))
+       (let* ((id (gcal-oevent-id old-oe))
               (place (org-id-find-id-in-file id file)))
          (if place
              (save-window-excursion
@@ -538,16 +544,16 @@ base32hexへ変換します。"
 
 (defun gcal-oevent-format (oevent &optional format)
   (let ((dic (list
-              (cons "%{summary}" (gcal-org-event-summary oevent))
+              (cons "%{summary}" (gcal-oevent-summary oevent))
               (cons "%{timestamp}" (gcal-ts-format-org-range
-                                    (gcal-org-event-ts-start oevent)
-                                    (gcal-org-event-ts-end oevent)))
-              (cons "%{id}" (gcal-org-event-id oevent))
-              (cons "%{ord}" (gcal-org-event-ord oevent))
-              (cons "%{ts-start}" (gcal-org-event-ts-start oevent))
-              (cons "%{ts-end}" (gcal-org-event-ts-end oevent))
-              (cons "%{ts-prefix}" (gcal-org-event-ts-prefix oevent))
-              (cons "%{location}" (gcal-org-event-location oevent)))))
+                                    (gcal-oevent-ts-start oevent)
+                                    (gcal-oevent-ts-end oevent)))
+              (cons "%{id}" (gcal-oevent-id oevent))
+              (cons "%{ord}" (gcal-oevent-ord oevent))
+              (cons "%{ts-start}" (gcal-oevent-ts-start oevent))
+              (cons "%{ts-end}" (gcal-oevent-ts-end oevent))
+              (cons "%{ts-prefix}" (gcal-oevent-ts-prefix oevent))
+              (cons "%{location}" (gcal-oevent-location oevent)))))
 
     (replace-regexp-in-string
      "%{[^}]+}"
