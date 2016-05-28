@@ -34,6 +34,8 @@
 ;;
 
 (require 'gcal)
+(require 'gcal-id)
+(require 'org-id)
 
 (defun make-gcal-org-event (&rest args) args)
 (defun gcal-org-event-id (oevent) (plist-get oevent :id))
@@ -444,11 +446,141 @@ base32hexへ変換します。"
     (cons id 0))))
 
 
+;;
+;; pull file from Google Calendar
+;;
+
+;; (defun gcal-org-pull-file (calendar-id file headline &optional params)
+;;   (let ((oevents (gcal-org-pull-oevents calendar-id params)))
+;;     ;; check error
+;;     (if (gcal-failed-p oevents)
+;;         (error ("error %s" oevents)))
+
+;;     ;;
+;;     (save-window-excursion
+;;       (save-excursion
+;;         (set-buffer (find-file-noselect file))
+
+;;         (loop for oevent in oevents
+;;               do (when (and oevent
+;;                             ;;(not (org-id-find-id-in-file (gcal-org-event-id oevent) file)))
+;;                             (not (org-id-find (gcal-org-event-id oevent))))
+;;                    (gcal-org-insert-string-after-headline
+;;                     (gcal-oevent-format oevent) headline)))))))
+
+
+(defun gcal-org-pull-to-file (calendar-id file headline cache-file &optional params)
+
+  (let* (result-events
+         (cur-events (gcal-org-parse-file file))
+         (old-events (gcal-oevents-load cache-file))
+         (new-events (gcal-org-pull-oevents calendar-id params)))
+
+    ;; check error
+    (if (gcal-failed-p new-events)
+        (error ("error %s" new-events)))
+
+    ;; merge
+    (gcal-oevents-diff
+     old-events
+     new-events
+     ;; mod
+     (lambda (old-oe new-oe)
+       ;;@todo impl (push new-oe result-events)
+       (message "event modified on calendar '%s'" (gcal-org-event-summary old-oe))
+       (push old-oe result-events))
+     ;; add
+     (lambda (new-oe)
+       (if (org-id-find-id-in-file (gcal-org-event-id new-oe) file)
+           (message "New event is already pulled '%s'" (gcal-org-event-summary new-oe))
+         (save-window-excursion
+           (save-excursion
+             (set-buffer (find-file-noselect file))
+             (gcal-org-insert-string-after-headline (gcal-oevent-format new-oe) headline)
+             (message "Add event %s" (gcal-org-event-summary new-oe))
+             )))
+       (push new-oe result-events))
+     ;; del
+     (lambda (old-oe)
+       (let* ((id (gcal-org-event-id old-oe))
+              (place (org-id-find-id-in-file id file)))
+         (if place
+             (save-window-excursion
+               (save-excursion
+                 (find-file (car place))
+                 (widen)
+                 (outline-show-all)
+                 (org-id-goto id)
+                 (if (y-or-n-p "delete this subtree?")
+                     (org-cut-subtree)
+                   (push old-oe result-events))))
+           ;;already deleted?
+           nil)))
+     ;; not change
+     (lambda (old-oe) (push old-oe result-events)))
+
+    ;;
+    (gcal-oevents-save cache-file result-events)))
+
+
+
+;;
+;; format oevent(oevent to org-mode text)
+;;
+
+(defcustom gcal-org-oevent-template
+  "** %{summary}\nSCHEDULED: %{timestamp}\n:PROPERTIES:\n :ID: %{id}\n :LOCATION: %{location}\n:END:\n"
+  "org-mode text representation of oevent."
+  :group 'gcal-org
+  :type 'string)
+
+(defun gcal-oevent-format (oevent &optional format)
+  (let ((dic (list
+              (cons "%{summary}" (gcal-org-event-summary oevent))
+              (cons "%{timestamp}" (gcal-ts-format-org-range
+                                    (gcal-org-event-ts-start oevent)
+                                    (gcal-org-event-ts-end oevent)))
+              (cons "%{id}" (gcal-org-event-id oevent))
+              (cons "%{ord}" (gcal-org-event-ord oevent))
+              (cons "%{ts-start}" (gcal-org-event-ts-start oevent))
+              (cons "%{ts-end}" (gcal-org-event-ts-end oevent))
+              (cons "%{ts-prefix}" (gcal-org-event-ts-prefix oevent))
+              (cons "%{location}" (gcal-org-event-location oevent)))))
+
+    (replace-regexp-in-string
+     "%{[^}]+}"
+     (lambda (key) (or (cdr (assoc key dic)) ""))
+     (or format gcal-org-oevent-template)
+     t)))
+
+(defun gcal-org-insert-string-after-headline (string headline)
+  "Insert STRING after specified HEADLINE."
+  (save-excursion
+    (widen)
+    (goto-char (point-min))
+
+    (if (re-search-forward
+         (format org-complex-heading-regexp-format (regexp-quote headline))
+         nil t)
+        (goto-char (point-at-bol))
+      ;; insert new headline
+      (goto-char (point-max))
+      (if (not (bolp)) (insert "\n"))
+      (insert "* " headline "\n")
+      (beginning-of-line 0))
+
+    (next-line)
+    (insert string)))
+
+
+
 
 
 
 ;;
 ;; org-mode timestamp representation
+;;
+;; (year month day hour minite)
 ;;
 ;; Examples:
 ;;   (gcal-ts-to-time '(2016 5 27 nil nil)) => (22343 3952)
@@ -458,7 +590,15 @@ base32hexへ変換します。"
 ;;
 
 (defun gcal-ts-to-time (ts)
+  "Convert timestamp to emacs internal time."
   (apply 'gcal-time-from-ymdhm ts))
+
+(defun gcal-ts-from-time (time date-only)
+  "Convert emacs internal time to timestamp."
+  (if time
+      (let ((d (decode-time time)))
+        (if date-only (list (nth 5 d) (nth 4 d) (nth 3 d) nil nil)
+          (list (nth 5 d) (nth 4 d) (nth 3 d) (nth 2 d) (nth 1 d))))))
 
 (defun gcal-ts-date-only (ts)
   (null (nth 3 ts)))
@@ -473,20 +613,30 @@ base32hexへ変換します。"
     (list y m (if date-only (1+ d) d) hh (if date-only mm (1+ mm)))))
 
 (defun gcal-ts-end-exclusive (ts-start ts-end)
-  "終了時間がその時間自身を含まないように補正します。"
-  (if (or (equal (gcal-ts-to-time ts-start) (gcal-ts-to-time ts-end)) ;;<2016-05-26 Thu> => 27へ
-          (gcal-ts-date-only ts-end)) ;;<2016-05-26 Thu>--<2016-05-27 Fri> => 28へ
+  "終了日がその日自身を含まないように補正します。"
+  (if (gcal-ts-date-only ts-end) ;;<2016-05-26 Thu>--<2016-05-27 Fri> => 28
       (gcal-ts-inc ts-end)
-    ;; <2016-05-26 Thu 15:00-16:00> ;; => 16:00 (16:01にしない)
+    ;; <2016-05-26 Thu 15:00-15:00> ;; => 15:00 (not 15:01)
+    ;; <2016-05-26 Thu 15:00-16:00> ;; => 16:00 (not 16:01)
     ts-end))
 
+(defun gcal-ts-end-inclusive (ts-start ts-end)
+  "Reverse gcal-ts-end-exclusive."
+  (if (and ts-end (gcal-ts-date-only ts-end))
+      (let* ((t-start (gcal-ts-to-time ts-start))
+             (t-end   (gcal-ts-to-time ts-end))
+             (t-end-1 (time-subtract t-end (seconds-to-time (* 24 60 60)))))
+        (gcal-ts-from-time
+         (if (time-less-p t-start t-end-1) t-end-1 t-start) t))
+    ts-end))
+
+
 (defun gcal-ts-to-gtime (ts)
-  "タイムスタンプをGoogle Calendarの時間表現へ変換します。"
+  "Convert timestamp to Google Calendar's event time."
   (gcal-time-to-gtime (gcal-ts-to-time ts) (gcal-ts-date-only ts)))
 
-
 (defun gcal-ts-from-gtime (gtime)
-  "Google Calendarのイベント時間表現からタイムスタンプへ変換します。"
+  "Convert Google Calendar's event time to timestamp."
   (let* ((time (gcal-time-from-gtime gtime))
          (dect (if time (decode-time time))))
     (if dect
@@ -496,6 +646,36 @@ base32hexへ変換します。"
           ;; date and time
           (list (nth 5 dect) (nth 4 dect) (nth 3 dect) (nth 2 dect) (nth 1 dect))))))
 
+
+(defun gcal-ts-equal-date (ts1 ts2)
+  (and
+   (= (nth 0 ts1) (nth 0 ts2))
+   (= (nth 1 ts1) (nth 1 ts2))
+   (= (nth 2 ts1) (nth 2 ts2))))
+
+(defun gcal-ts-format-org (ts)
+  "ex: <2016-05-28 Sat> or <2016-05-28 Sat 12:34>"
+  (format-time-string
+   (org-time-stamp-format (not (gcal-ts-date-only ts)) nil)
+   (gcal-ts-to-time ts)))
+
+(defun gcal-ts-format-org-range (ts-start ts-end)
+  (cond
+   ;; <2016-05-28 Sat> or <2016-05-28 Sat 12:34>
+   ((equal ts-start ts-end)
+    (gcal-ts-format-org ts-start))
+   ;; <2016-05-28 Sat 01:23-12:34>
+   ((and (not (gcal-ts-date-only ts-start))
+         (gcal-ts-equal-date ts-start ts-end))
+    (concat
+     (substring (gcal-ts-format-org ts-start) 0 -1)
+     (format-time-string "-%H:%M>" (gcal-ts-to-time ts-end))))
+   ;; <2016-05-28 Sat ??:??>--<2016-05-29 Sun ??:??>
+   (t
+    (concat
+     (gcal-ts-format-org ts-start)
+     "--"
+     (gcal-ts-format-org ts-end)))))
 
 
 (provide 'gcal-org)
