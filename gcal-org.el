@@ -109,8 +109,47 @@
 
 
 ;;
-;; pushed oevents cache
+;; push
 ;;
+
+(defun gcal-org-push-file (calendar-id file &optional cache-file)
+  (if cache-file
+      (gcal-org-push-file-specified-cache calendar-id file cache-file)
+    (gcal-org-push-file-global-cache calendar-id file)))
+
+    ;; use specified-cache
+
+(defun gcal-org-push-file-specified-cache (calendar-id file cache-file)
+  (let ((old-events (gcal-oevents-load cache-file))
+        (new-events (gcal-org-parse-file file)))
+
+    (gcal-oevents-save
+     cache-file
+     (gcal-org-push-oevents calendar-id new-events old-events))))
+
+
+(defun gcal-oevents-save (file oevents)
+  (with-temp-file file
+    (pp oevents (current-buffer))))
+
+(defun gcal-oevents-load (file)
+  (if (file-exists-p file)
+      (ignore-errors
+        (with-temp-buffer
+          (insert-file-contents file)
+          (read (buffer-string))))))
+
+    ;; use global-cache
+
+(defun gcal-org-push-file-global-cache (calendar-id file)
+  (let ((calfile-cache (gcal-org-pushed-events-cache calendar-id file)))
+
+    (setf (nth 1 calfile-cache)
+          (gcal-org-push-oevents calendar-id
+                                 (gcal-org-parse-file file) ;;new events
+                                 (nth 1 calfile-cache)))) ;;old events
+
+  (gcal-org-pushed-events-save))
 
 (defvar gcal-org-pushed-events nil)
 
@@ -145,15 +184,7 @@
 
     calfile-cache))
 
-(defun gcal-org-push-file (calendar-id file)
-  (let ((calfile-cache (gcal-org-pushed-events-cache calendar-id file)))
 
-    (setf (nth 1 calfile-cache)
-          (gcal-org-push-oevents calendar-id
-                                 (gcal-org-parse-file file) ;;new events
-                                 (nth 1 calfile-cache)))) ;;old events
-
-  (gcal-org-pushed-events-save))
 
 
 
