@@ -27,8 +27,10 @@
 (defvar gcal-base32hex-table "0123456789ABCDEFGHIJKLMNOPQRSTUV")
 
 (defun gcal-base32hex-p (string)
-  (not
-   (find-if-not (lambda (c) (position c gcal-base32hex-table)) (upcase string))))
+  (and
+   (stringp string)
+   (not
+    (find-if-not (lambda (c) (position c gcal-base32hex-table)) (upcase string)))))
 
 (defun gcal-base32hex-decode (string)
   "RFC2938"
