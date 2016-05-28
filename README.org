@@ -4,6 +4,7 @@
 Settings:
 
 #+BEGIN_SRC elisp
+;; Get from Google Developer Console
 (setq gcal-client-id "xxxxxxxxx.apps.googleusercontent.com")
 (setq gcal-client-secret "xxxx-XxxxXxxXXXxx") ;;API-KEY
 #+END_SRC
@@ -39,5 +40,27 @@ Usage:
 
 #+BEGIN_SRC elisp
 (require 'gcal-org)
-(gcal-org-push-file "example@gmail.com" "~/my-schedule.org")
+
+;; Org to Google Calendar
+(gcal-org-push-file "example@gmail.com" "~/my-schedule.org") ;;use global cache file(~/.emacs.d/.gcal-org-pushed-events)
+
+(gcal-org-push-file "example@gmail.com" "~/my-schedule.org" "~/my-schedule.gcal-cache")
+
+;; Org to oevent(org-mode event)
+(gcal-org-parse-buffer) ;; Parse current buffer. Return a list of gcal-org-event object(including properties :id, :ord, :summary, :location, :ts-start, :ts-end, :ts-prefx, ...).
+
+(gcal-org-parse-file "~/my-schedule.org") ;; Parse specified org file.
+
+;; oevents to Google Calendar
+(gcal-org-push-oevents
+  "example@gmail.com"
+  (gcal-org-parse-file "~/my-schedule.org")
+  nil)
+
+;; oevents to Google Calendar (delta)
+(gcal-org-push-oevents
+  "example@gmail.com"
+  (gcal-org-parse-file "~/my-schedule.org")
+  (gcal-org-parse-file "~/my-schedule.org.old"))
+
 #+END_SRC
