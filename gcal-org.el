@@ -28,7 +28,6 @@
 
 ;;; Code:
 
-
 (require 'gcal)
 (require 'gcal-id)
 (require 'org-id)
@@ -49,7 +48,7 @@
 
 
 ;;
-;; parse org-mode document
+;; Parse org-mode document
 ;;
 
 (defun gcal-org-parse-file (file)
@@ -116,8 +115,9 @@
       (nreverse events))))
 
 
+
 ;;
-;; push
+;; Push org file to Google Calendar
 ;;
 
 (defun gcal-org-push-file (calendar-id file &optional cache-file)
@@ -125,7 +125,7 @@
       (gcal-org-push-file-specified-cache calendar-id file cache-file)
     (gcal-org-push-file-global-cache calendar-id file)))
 
-    ;; use specified-cache
+    ;; use specified cache-file
 
 (defun gcal-org-push-file-specified-cache (calendar-id file cache-file)
   (let ((old-events (gcal-oevents-load cache-file))
@@ -137,17 +137,19 @@
 
 
 (defun gcal-oevents-save (file oevents)
+  "Save OEVENTS(list of gcal-oevent) to FILE."
   (with-temp-file file
     (pp oevents (current-buffer))))
 
 (defun gcal-oevents-load (file)
+  "Load list of gcal-oevent from FILE."
   (if (file-exists-p file)
       (ignore-errors
         (with-temp-buffer
           (insert-file-contents file)
           (read (buffer-string))))))
 
-    ;; use global-cache
+    ;; use global-cache(gcal-org-pushed-events-file)
 
 (defun gcal-org-push-file-global-cache (calendar-id file)
   (let ((calfile-cache (gcal-org-pushed-events-cache calendar-id file)))
@@ -195,9 +197,30 @@
 
 
 
-
 ;;
-;; push org-mode events to Google Calendar
+;; Push list of org-mode events to Google Calendar
+;;
+;; Usage:
+;;  Upload:
+;;   (setq my-schedule-pushed-oevents
+;;     (gcal-org-push-oevents "example@gmail.com"
+;;       (gcal-org-parse-file "~/my-schedule.org") nil))
+;;
+;;   (gcal-oevents-save "~/my-schedule.gcal-cache" my-schedule-pushed-oevents)
+;;
+;;  Upload delta:
+;;   (gcal-org-push-oevents "example@gmail.com"
+;;     (gcal-org-parse-file "~/my-schedule.org")
+;;     (gcal-org-parse-file "~/my-schedule.org.old"))
+;;
+;;   (gcal-org-push-oevents "example@gmail.com"
+;;     (gcal-org-parse-file "~/my-schedule.org")
+;;     (gcal-oevents-load "~/my-schedule.gcal-cache"))
+;;
+;;  Delete:
+;;   (gcal-org-push-oevents "example@gmail.com"
+;;     nil
+;;     (gcal-org-parse-file "~/my-schedule.org"))
 ;;
 
 (defun gcal-org-push-oevents (calendar-id new-events old-events)
@@ -247,152 +270,20 @@ old-events will be destroyed."
 (defun gcal-org-push-oevents--insert (calendar-id new-oe)
   (let* ((res (gcal-oevent-insert calendar-id new-oe))
          (err (gcal-get-error-code res)))
-    ;; conflict (may be status=cancelled)
+    ;; conflict (may be already pushed and deleted(status=cancelled))
     (if (and (integerp err) (= err 409))
+        ;;@todo use patch?
         (setq res (gcal-oevent-update calendar-id new-oe))
       res)))
 
 
 
-
 ;;
-;; diff org-mode events
-;;
-
-(defun gcal-oevents-find-first-and-remove (cons-oevents id ord)
-  "cons-oeventsのcdr以降からid,ordとマッチするイベントを探し、そ
-の要素を削除し、その要素を返します。cons-oeventsの中身は変更され
-ます。"
-  (let ((curr cons-oevents)
-        result)
-    (while (cdr curr)
-      (let ((oe (cadr curr)))
-        (when (and oe
-                   (equal (gcal-oevent-id oe) id)
-                   (equal (gcal-oevent-ord oe) ord))
-          (setcdr curr (cddr curr)) ;;remove element
-          (setq curr nil) ;;break loop
-          (setq result oe)))
-      (setq curr (cdr curr)))
-    result))
-
-(defun gcal-oevents-diff (old-oevents new-oevents func-mod func-add func-del func-eq)
-  "gcal-oeventのリスト二つを比較し、変更、追加、削除されたイベ
-ントについて関数を適用します。"
-  (let ((cons-old-oevents (cons nil old-oevents)))
-    (loop for new-oe in new-oevents
-          do (let ((old-oe (gcal-oevents-find-first-and-remove
-                            cons-old-oevents
-                            (gcal-oevent-id new-oe)
-                            (gcal-oevent-ord new-oe))))
-               (cond
-                ((null old-oe)
-                 ;; new event
-                 (funcall func-add new-oe)
-                 )
-                ((not (equal old-oe new-oe))
-                 ;; modified event
-                 (funcall func-mod old-oe new-oe)
-                 )
-                (t
-                 ;; not modified event
-                 (funcall func-eq new-oe))
-                )))
-    (setq old-oevents (cdr cons-old-oevents)))
-  ;; deleted event
-  (loop for old-oe in old-oevents
-        do (funcall func-del old-oe)))
-
-
-
-
-;;
-;; convert oevent(Org-mode Event) to gevent(Google Calendar Event)
-;;
-
-(defun gcal-oevent-id-to-gevent-id (uuid)
-  "oeventのID(UUID)をGoogle CalendarのイベントID表現へ変換します。
-base32hexへ変換します。"
-  ;; new method
-  (if (gcal-uuid-p uuid)
-      (downcase (gcal-uuid-to-base32hex uuid))
-    uuid))
-
-(defun gcal-oevent-gevent-id (oevent)
-  "gcal-oevent構造体からGoogle CalendarのイベントIDを求めます。
-同一エントリー内に複数のタイムスタンプがある場合に別々のIDを振り
-ます。"
-  (let ((gid (gcal-oevent-id-to-gevent-id (gcal-oevent-id oevent)))
-        (ord (gcal-oevent-ord oevent)))
-    (if (= ord 0)
-        gid ;;0のときはそのまま。代表ID。Google Calendarから取り込んだイベントは必ずこれ。
-      (format "%s%05d" gid ord))))
-
-(defun gcal-oevent-to-gevent (oevent)
-  "gcal-oevent構造体をGoogle Calendarのイベント表現へ変換します。"
-  (let* ((summary   (gcal-oevent-summary oevent))
-         (ts-prefix (gcal-oevent-ts-prefix oevent))
-         (ts-start  (gcal-oevent-ts-start oevent))
-         (ts-end    (gcal-oevent-ts-end oevent))
-         (location  (gcal-oevent-location oevent))
-         (ord  (gcal-oevent-ord oevent)))
-    `((id . ,(gcal-oevent-gevent-id oevent))
-      (status . "confirmed")
-      (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
-      (start . ,(gcal-ts-to-gtime ts-start))
-      (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
-      (extendedProperties
-       . ((private
-           . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
-              (gcalOrd . ,ord)))))
-      ,@(if location `((location . ,location)))
-      )))
-
-(defun gcal-oevent-base32hex-uuid-p (id)
-  ;; i5o7hja5ch1r14crqmp8g9mv6k
-  (and (gcal-base32hex-p id) (= (length id) 26)))
-
-(defun gcal-oevent-base32hex-uuid-with-ord-p (id)
-  ;; i5o7hja5ch1r14crqmp8g9mv6k00001
-  ;;;@todo check last 5 digits
-  (and (gcal-base32hex-p id) (= (length id) (+ 26 5))))
-
-
-;;
-;; oevent API
-;;
-
-(defun gcal-oevent-insert (calendar-id oevent)
-  (gcal-events-insert calendar-id (gcal-oevent-to-gevent oevent)))
-
-(defun gcal-oevent-update (calendar-id oevent)
-  (gcal-events-update calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
-
-(defun gcal-oevent-patch (calendar-id oevent)
-  (gcal-events-patch calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
-
-(defun gcal-oevent-delete (calendar-id oevent)
-  (gcal-events-delete calendar-id (gcal-oevent-gevent-id oevent)))
-
-
-(defun gcal-oevents-insert (calendar-id oevents)
-  (loop for oevent in oevents
-        do (gcal-oevent-insert calendar-id oevent)))
-
-(defun gcal-oevents-delete (calendar-id oevents)
-  (loop for oevent in oevents
-        do (gcal-oevent-delete calendar-id oevent)))
-
-
-
-
-
-;;
-;; pull oevents from Google Calendar
+;; Pull oevents from Google Calendar
 ;;
 
 (defun gcal-org-pull-oevents (calendar-id &optional params)
-  "Download calendar events as list of oevent."
+  "Download calendar events as list of gcal-oevent."
   (let ((gevents (gcal-events-list calendar-id params)))
     (if (gcal-failed-p gevents)
         (message "error %s" gevents)
@@ -401,61 +292,10 @@ base32hexへ変換します。"
        nil
        (mapcar #'gcal-oevent-from-gevent (cdr (assq 'items gevents)))))))
 
-(defun gcal-oevent-from-gevent (gevent)
-  "Google Calendar event to oevent(gcal-oevent object)"
-  (let* ((gid (cdr (assq 'id gevent)))
-         (id-ord (gcal-oevent-id-ord-from-gevent-id gid))
-         (id (car id-ord))
-         (ord (cdr id-ord))
-         (status (cdr (assq 'status gevent)))
-         (start (cdr (assq 'start gevent)))
-         (end   (cdr (assq 'end gevent)))
-         (ts-start (if start (gcal-ts-from-gtime start)))
-         (ts-end   (if start (gcal-ts-from-gtime end)))
-         (created (cdr (assq 'created gevent)))
-         (updated (cdr (assq 'updated gevent)))
-         (summary (cdr (assq 'summary gevent)))
-         (location (cdr (assq 'location gevent)))
-         (ex-props (cdr (assq 'private (cdr (assq 'extendedProperties gevent)))))
-         (ts-prefix (cdr (assq 'gcalTsPrefix ex-props))) )
-
-    (if (not (stringp id))
-        (message "invalid event id found '%s'" id)
-      (if (not (string= status "cancelled"))
-          (make-gcal-oevent
-           :id id
-           :ord ord
-           :summary (if (and (stringp ts-prefix)
-                             (string= ts-prefix "DEADLINE")
-                             (>= (length summary) 3)
-                             (string= (substring summary 0 3) "DL:"))
-                        (substring summary 3) summary) ;;strip "DL:"
-           :ts-prefix ts-prefix
-           :ts-start ts-start
-           :ts-end (gcal-ts-end-inclusive ts-start ts-end)
-           :location location
-  )))))
-
-(defun gcal-oevent-id-ord-from-gevent-id (id)
-  "Convert Google Calendar's event id to oevent's :id and :ord."
-  (cond
-   ;; base32hex-uuid + ord
-   ((gcal-oevent-base32hex-uuid-with-ord-p id)
-    (cons
-     (gcal-uuid-from-base32hex (substring id 0 26))
-     (string-to-number (substring id 26 (+ 26 5)))))
-
-   ;; base32hex-uuid
-   ((gcal-oevent-base32hex-uuid-p id)
-    (cons (gcal-uuid-from-base32hex id) 0))
-
-   ;; unknown
-   (t
-    (cons id 0))))
 
 
 ;;
-;; pull file from Google Calendar
+;; Pull events to file from Google Calendar
 ;;
 
 ;; (defun gcal-org-pull-file (calendar-id file headline &optional params)
@@ -584,9 +424,198 @@ base32hexへ変換します。"
 
 
 
+;;
+;; Diff org-mode events
+;;
+
+(defun gcal-oevents-find-first-and-remove (cons-oevents id ord)
+  "cons-oeventsのcdr以降からid,ordとマッチするイベントを探し、そ
+の要素を削除し、その要素を返します。cons-oeventsの中身は変更され
+ます。"
+  (let ((curr cons-oevents)
+        result)
+    (while (cdr curr)
+      (let ((oe (cadr curr)))
+        (when (and oe
+                   (equal (gcal-oevent-id oe) id)
+                   (equal (gcal-oevent-ord oe) ord))
+          (setcdr curr (cddr curr)) ;;remove element
+          (setq curr nil) ;;break loop
+          (setq result oe)))
+      (setq curr (cdr curr)))
+    result))
+
+(defun gcal-oevents-diff (old-oevents new-oevents func-mod func-add func-del func-eq)
+  "Compare the two oevent list(OLD-EVENTS NEW-EVENTS) and call FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
+  (let ((cons-old-oevents (cons nil old-oevents)))
+    (loop for new-oe in new-oevents
+          do (let ((old-oe (gcal-oevents-find-first-and-remove
+                            cons-old-oevents
+                            (gcal-oevent-id new-oe)
+                            (gcal-oevent-ord new-oe))))
+               (cond
+                ;; new event
+                ((null old-oe)
+                 (funcall func-add new-oe))
+
+                ;; modified event
+                ((not (equal old-oe new-oe))
+                 (funcall func-mod old-oe new-oe))
+
+                ;; not modified event
+                (t
+                 (funcall func-eq new-oe))
+                )))
+    (setq old-oevents (cdr cons-old-oevents)))
+  ;; deleted event
+  (loop for old-oe in old-oevents
+        do (funcall func-del old-oe)))
+
+
+
 
 ;;
-;; org-mode timestamp representation
+;; Convert between oevent(Org-mode Event) and gevent(Google Calendar Event)
+;;
+
+(defun gcal-oevent-to-gevent (oevent)
+  "Convert a oevent(gcal-oevent object) to a Google Calendar event."
+  (let* ((summary   (gcal-oevent-summary oevent))
+         (ts-prefix (gcal-oevent-ts-prefix oevent))
+         (ts-start  (gcal-oevent-ts-start oevent))
+         (ts-end    (gcal-oevent-ts-end oevent))
+         (location  (gcal-oevent-location oevent))
+         (ord  (gcal-oevent-ord oevent)))
+    `((id . ,(gcal-oevent-gevent-id oevent))
+      (status . "confirmed")
+      (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
+      (start . ,(gcal-ts-to-gtime ts-start))
+      (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
+      (extendedProperties
+       . ((private
+           . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
+              (gcalOrd . ,ord)))))
+      ,@(if location `((location . ,location)))
+      )))
+
+(defun gcal-oevent-from-gevent (gevent)
+  "Convert a Google Calendar event to a oevent(gcal-oevent object)."
+  (let* ((gid (cdr (assq 'id gevent)))
+         (id-ord (gcal-oevent-id-ord-from-gevent-id gid))
+         (id (car id-ord))
+         (ord (cdr id-ord))
+         (status (cdr (assq 'status gevent)))
+         (start (cdr (assq 'start gevent)))
+         (end   (cdr (assq 'end gevent)))
+         (ts-start (if start (gcal-ts-from-gtime start)))
+         (ts-end   (if start (gcal-ts-from-gtime end)))
+         (created (cdr (assq 'created gevent)))
+         (updated (cdr (assq 'updated gevent)))
+         (summary (cdr (assq 'summary gevent)))
+         (location (cdr (assq 'location gevent)))
+         (ex-props (cdr (assq 'private (cdr (assq 'extendedProperties gevent)))))
+         (ts-prefix (cdr (assq 'gcalTsPrefix ex-props))) )
+
+    (if (not (stringp id))
+        (message "invalid event id found '%s'" id)
+      (if (not (string= status "cancelled"))
+          (make-gcal-oevent
+           :id id
+           :ord ord
+           :summary (if (and (stringp ts-prefix)
+                             (string= ts-prefix "DEADLINE")
+                             (>= (length summary) 3)
+                             (string= (substring summary 0 3) "DL:"))
+                        (substring summary 3) summary) ;;strip "DL:"
+           :ts-prefix ts-prefix
+           :ts-start ts-start
+           :ts-end (gcal-ts-end-inclusive ts-start ts-end)
+           :location location
+           )))))
+
+
+  ;; Convert event id
+
+(defun gcal-oevent-id-to-gevent-id (uuid)
+  "oeventのID(UUID)をGoogle CalendarのイベントID表現へ変換します。
+base32hexへ変換します。"
+  (if (gcal-uuid-p uuid)
+      (downcase (gcal-uuid-to-base32hex uuid))
+    uuid))
+
+(defun gcal-oevent-gevent-id (oevent)
+  "gcal-oevent構造体からGoogle CalendarのイベントIDを求めます。
+同一エントリー内に複数のタイムスタンプがある場合に別々のIDを振り
+ます。"
+  (let ((gid (gcal-oevent-id-to-gevent-id (gcal-oevent-id oevent)))
+        (ord (gcal-oevent-ord oevent)))
+    (if (= ord 0)
+        gid ;;0のときはそのまま。代表ID。Google Calendarから取り込んだイベントは必ずこれ。
+      (format "%s%05d" gid ord))))
+
+(defun gcal-oevent-base32hex-uuid-p (id)
+  ;; i5o7hja5ch1r14crqmp8g9mv6k
+  (and (gcal-base32hex-p id) (= (length id) 26)))
+
+(defun gcal-oevent-base32hex-uuid-with-ord-p (id)
+  ;; i5o7hja5ch1r14crqmp8g9mv6k00001
+  ;;;@todo check last 5 digits
+  (and (gcal-base32hex-p id) (= (length id) (+ 26 5))))
+
+(defun gcal-oevent-id-ord-from-gevent-id (id)
+  "Convert Google Calendar's event id to oevent's :id and :ord."
+  (cond
+   ;; base32hex-uuid + ord
+   ((gcal-oevent-base32hex-uuid-with-ord-p id)
+    (cons
+     (gcal-uuid-from-base32hex (substring id 0 26))
+     (string-to-number (substring id 26 (+ 26 5)))))
+
+   ;; base32hex-uuid
+   ((gcal-oevent-base32hex-uuid-p id)
+    (cons (gcal-uuid-from-base32hex id) 0))
+
+   ;; unknown
+   (t
+    (cons id 0))))
+
+
+
+
+;;
+;; oevent event operation
+;;
+
+(defun gcal-oevent-insert (calendar-id oevent)
+  (gcal-events-insert calendar-id (gcal-oevent-to-gevent oevent)))
+
+(defun gcal-oevent-update (calendar-id oevent)
+  (gcal-events-update calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
+
+(defun gcal-oevent-patch (calendar-id oevent)
+  (gcal-events-patch calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
+
+(defun gcal-oevent-delete (calendar-id oevent)
+  (gcal-events-delete calendar-id (gcal-oevent-gevent-id oevent)))
+
+
+(defun gcal-oevents-insert (calendar-id oevents)
+  (loop for oevent in oevents
+        do (gcal-oevent-insert calendar-id oevent)))
+
+(defun gcal-oevents-delete (calendar-id oevents)
+  (loop for oevent in oevents
+        do (gcal-oevent-delete calendar-id oevent)))
+
+
+
+
+
+
+
+
+;;
+;; oevent timestamp representation
 ;;
 ;; (year month day hour minite)
 ;;
