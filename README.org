@@ -84,3 +84,6 @@ Download
  `((timeMin . ,(gcal-time-format (current-time) nil)))) ;;after current time
 
 #+END_SRC
+** Documents
+- [[http://misohena.jp/blog/2016-05-26-access-google-calendar-api-from-emacs.html][About gcal.el]]
+- [[http://misohena.jp/blog/2016-05-29-sync-events-between-google-calendar-and-org-mode.html][About gcal-org.el]]
