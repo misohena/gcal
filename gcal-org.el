@@ -517,24 +517,31 @@ old-events will be destroyed."
          (summary (cdr (assq 'summary gevent)))
          (location (cdr (assq 'location gevent)))
          (ex-props (cdr (assq 'private (cdr (assq 'extendedProperties gevent)))))
-         (ts-prefix (cdr (assq 'gcalTsPrefix ex-props))) )
+         (ex-prop-ord (cdr (assq 'gcalOrd ex-props)))
+         (ex-prop-ts-prefix (cdr (assq 'gcalTsPrefix ex-props)))
+         (created-on-google (and (null ex-prop-ord) (null ex-prop-ts-prefix)))
+         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix)))
 
-    (if (not (stringp id))
-        (message "invalid event id found '%s'" id)
-      (if (not (string= status "cancelled"))
-          (make-gcal-oevent
-           :id id
-           :ord ord
-           :summary (if (and (stringp ts-prefix)
-                             (string= ts-prefix "DEADLINE")
-                             (>= (length summary) 3)
-                             (string= (substring summary 0 3) "DL:"))
-                        (substring summary 3) summary) ;;strip "DL:"
-           :ts-prefix ts-prefix
-           :ts-start ts-start
-           :ts-end (gcal-ts-end-inclusive ts-start ts-end)
-           :location location
-           )))))
+    (cond
+     ((not (stringp id))
+      (message "invalid event id found '%s'" id)
+      nil)
+     ((string= status "cancelled")
+      nil)
+     (t
+      (make-gcal-oevent
+       :id id
+       :ord ord
+       :summary (if (and (stringp ts-prefix)
+                         (string= ts-prefix "DEADLINE")
+                         (>= (length summary) 3)
+                         (string= (substring summary 0 3) "DL:"))
+                    (substring summary 3) summary) ;;strip "DL:"
+       :ts-prefix ts-prefix
+       :ts-start ts-start
+       :ts-end (gcal-ts-end-inclusive ts-start ts-end)
+       :location location
+       )))))
 
 
   ;; Convert event id
