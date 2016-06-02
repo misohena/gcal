@@ -317,7 +317,9 @@ old-events will be destroyed."
 ;;                     (gcal-oevent-format oevent) headline)))))))
 
 
-(defun gcal-org-pull-to-file (calendar-id file headline cache-file &optional params)
+(defun gcal-org-pull-to-file (calendar-id
+                              file headline cache-file
+                              &optional params)
 
   (let* (result-events
          (cur-events (gcal-org-parse-file file))
@@ -334,41 +336,188 @@ old-events will be destroyed."
      new-events
      ;; mod
      (lambda (old-oe new-oe)
-       ;;@todo impl (push new-oe result-events)
-       (message "event modified on calendar '%s'" (gcal-oevent-summary old-oe))
-       (push old-oe result-events))
+       (push (gcal-org-pull--entry-mod file old-oe new-oe) result-events))
      ;; add
      (lambda (new-oe)
-       (if (org-id-find-id-in-file (gcal-oevent-id new-oe) file)
-           (message "New event is already pulled '%s'" (gcal-oevent-summary new-oe))
-         (save-window-excursion
-           (save-excursion
-             (set-buffer (find-file-noselect file))
-             (gcal-org-insert-string-after-headline (gcal-oevent-format new-oe) headline)
-             (message "Add event %s" (gcal-oevent-summary new-oe))
-             )))
-       (push new-oe result-events))
+       (push (gcal-org-pull--entry-add file headline new-oe) result-events))
      ;; del
      (lambda (old-oe)
-       (let* ((id (gcal-oevent-id old-oe))
-              (place (org-id-find-id-in-file id file)))
-         (if place
-             (save-window-excursion
-               (save-excursion
-                 (find-file (car place))
-                 (widen)
-                 (outline-show-all)
-                 (org-id-goto id)
-                 (if (y-or-n-p "delete this subtree?")
-                     (org-cut-subtree)
-                   (push old-oe result-events))))
-           ;;already deleted?
-           nil)))
+       (push (gcal-org-pull--entry-del file old-oe) result-events))
      ;; not change
-     (lambda (old-oe) (push old-oe result-events)))
+     (lambda (old-oe)
+       (push old-oe result-events)))
 
-    ;;
-    (gcal-oevents-save cache-file result-events)))
+    ;; save cache file
+    (gcal-oevents-save cache-file (delq nil (nreverse result-events)))))
+
+(defun gcal-org-pull--entry-add (file headline new-oe)
+  ;; @todo 本当はタイムスタンプ(id,ord)を追加しなければならない。
+  ;; cache-fileになくてGoogle上にあるエントリーは大抵Google上で追加し
+  ;; たイベントなので、エントリーを一つ追加する。
+  (if (org-id-find-id-in-file (gcal-oevent-id new-oe) file)
+      (progn
+        (message "Event is already exist '%s'" (gcal-oevent-summary new-oe))
+        nil)
+    (save-window-excursion
+      (save-excursion
+        (set-buffer (find-file-noselect file))
+        (gcal-org-insert-string-after-headline (gcal-oevent-format new-oe) headline)
+        (message "Add event %s" (gcal-oevent-summary new-oe))
+        new-oe))))
+
+(defun gcal-org-pull--entry-del (file old-oe)
+  ;; @todo 本当はタイムスタンプ(id,ord)を消さなければならない。
+  ;; org上のエントリーを削除する。
+  (gcal-org-with-oevent-entry
+   old-oe file
+   (lambda ()
+     (if (y-or-n-p "delete this subtree?")
+         (progn
+           (org-cut-subtree)
+           nil)
+       old-oe))
+   old-oe))
+
+(defun gcal-org-pull--entry-mod (file old-oe new-oe)
+  (gcal-org-with-oevent-entry
+   old-oe file
+   (lambda ()
+     ;; summary
+     (gcal-org-pull-merge-property
+      "headline"
+      (gcal-oevent-summary old-oe) ;;old-value
+      (gcal-oevent-summary new-oe) ;;new-value
+      (substring-no-properties (org-get-heading t t)) ;;curr-value
+      (lambda (value) (gcal-org-set-heading-text value)) ;;update org
+      (lambda (value) (setq old-oe (plist-put old-oe :summary value)))) ;;update object
+     ;; location
+     (gcal-org-pull-merge-property
+      "location"
+      (gcal-oevent-location old-oe) ;;old-value
+      (gcal-oevent-location new-oe) ;;new-value
+      (org-entry-get (point) "LOCATION") ;;curr-value
+      (lambda (value) (org-set-property "LOCATION" value)) ;;update org
+      (lambda (value) (setq old-oe (plist-put old-oe :summary value)))) ;;update object
+     ;; ts
+     (let ((new-ts-prefix (gcal-oevent-ts-prefix new-oe)))
+       (if (stringp new-ts-prefix)
+           ;; ts-prefixがあるなら、それが指すタイムスタンプを変更する。
+           (gcal-org-pull-merge-property
+            (format "timestamp (%s)" new-ts-prefix)
+            (cons (gcal-oevent-ts-start old-oe) (gcal-oevent-ts-end old-oe)) ;;old-value
+            (cons (gcal-oevent-ts-start new-oe) (gcal-oevent-ts-end new-oe)) ;;new-value
+            (gcal-org-get-schedule-ts-range new-ts-prefix) ;;cur-value
+            (lambda (value) (gcal-org-set-schedule-ts-range value new-ts-prefix))
+            (lambda (value)
+              (setq old-oe (plist-put old-oe :ts-start (car value)))
+              (setq old-oe (plist-put old-oe :ts-end (cdr value)))))
+         ;; @todo :ord番目のタイムスタンプを変更する。
+         ))
+     old-oe)
+   old-oe))
+
+(defun gcal-org-pull-merge-property (propname old-value new-value curr-value fun-apply-org fun-apply-obj)
+  "Merge property change."
+  (cond
+   ;; not changed (from cache-file to google calendar)
+   ((equal new-value old-value)
+    (funcall fun-apply-obj new-value))
+   ;; already merged
+   ((equal new-value curr-value)
+    (funcall fun-apply-obj new-value))
+   (t
+    (if (y-or-n-p (format "Change %s\n %s to\n %s ?" propname curr-value new-value))
+        (progn
+          (funcall fun-apply-org new-value)
+          (funcall fun-apply-obj new-value))
+      (funcall fun-apply-obj old-value)))))
+
+(defun gcal-org-with-oevent-entry (oevent file func ret-if-failed)
+  "FILE 内にある OEVENT がある場所を開いて、 FUNC を実行します。"
+  (let* ((id (gcal-oevent-id oevent))
+         (place (org-id-find-id-in-file id file)))
+    (if place
+        (save-window-excursion
+          (save-excursion
+            (find-file (car place))
+            (widen)
+            (outline-show-all)
+            (org-id-goto id)
+
+            (funcall func)))
+      ;;not found
+      ret-if-failed)))
+
+ ;;org内容変更
+
+(defun gcal-org-set-heading-text (text)
+  "見出しテキストを変更します。"
+  (save-excursion
+    (org-back-to-heading t)
+
+    (looking-at org-complex-heading-regexp)
+    (replace-match text t t nil 4)))
+
+(defun gcal-org-get-schedule-element (&optional keyword)
+  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をorg-element-timestamp-parserの戻り値で取得します。日付の範囲表現も取得できます。"
+  (save-excursion
+    (org-back-to-heading t)
+    (forward-line)
+    (if (and (org-looking-at-p org-planning-line-re)
+             (re-search-forward
+              (format "\\<%s: *" (or keyword "SCHEDULED")) (line-end-position) t))
+        (org-element-timestamp-parser))))
+
+(defun gcal-org-get-schedule-ts-range (&optional keyword)
+  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値で取得します。"
+  (let* ((elem (cadr (gcal-org-get-schedule-element keyword)))
+         (ts-start   (list
+                      (plist-get elem :year-start)
+                      (plist-get elem :month-start)
+                      (plist-get elem :day-start)
+                      (plist-get elem :hour-start)
+                      (plist-get elem :minute-start)))
+         (ts-end     (list
+                      (plist-get elem :year-end)
+                      (plist-get elem :month-end)
+                      (plist-get elem :day-end)
+                      (plist-get elem :hour-end)
+                      (plist-get elem :minute-end))))
+    (if elem
+        (cons ts-start ts-end))))
+
+(defun gcal-org-set-schedule-ts-range (ts-range &optional keyword)
+  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値から設定します。"
+  (let ((ts-text (gcal-ts-format-org-range (car ts-range) (cdr ts-range))))
+    (save-excursion
+      (org-back-to-heading t)
+      (forward-line)
+      (if (org-looking-at-p org-planning-line-re)
+          (if (re-search-forward (format "\\<%s: *" (or keyword "SCHEDULED")) (line-end-position) t)
+              (let ((elem (cadr (org-element-timestamp-parser))))
+                (if elem
+                    (progn
+                      (delete-region
+                       (plist-get elem :begin)
+                       (plist-get elem :end))
+                      (insert ts-text))
+                  (insert ts-text)))
+            (cond
+             ((string= keyword "CLOSED")
+              (re-search-forward " *" (line-end-position) t)
+              (insert " CLOSED: " ts-text " "))
+             ((string= keyword "DEADLINE")
+              (if (re-search-forward "\\<SCHEDULED: *" (line-end-position) t)
+                  (progn
+                    (goto-char (match-beginning 0))
+                    (insert "DEADLINE: " ts-text " "))
+                (end-of-line)
+                (insert " DEADLINE: " ts-text " ")))
+             ((string= keyword "SCHEDULED")
+              (end-of-line)
+              (insert " SCHEDULED: " ts-text " "))))
+        (insert " " keyword ": " ts-text "\n")))))
+
 
 
 
@@ -430,6 +579,11 @@ old-events will be destroyed."
 ;;
 ;; Diff org-mode events
 ;;
+
+(defun gcal-oevents-find (oevents id ord)
+  (find-if (lambda (oe) (and (equal (gcal-oevent-id oe) id)
+                             (equal (gcal-oevent-ord oe) ord)))
+           oevents))
 
 (defun gcal-oevents-find-first-and-remove (cons-oevents id ord)
   "cons-oeventsのcdr以降からid,ordとマッチするイベントを探し、そ
