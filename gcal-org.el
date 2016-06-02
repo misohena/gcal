@@ -377,23 +377,26 @@ old-events will be destroyed."
 ;;
 
 (defcustom gcal-org-oevent-template
-  "** %{summary}\nSCHEDULED: %{timestamp}\n:PROPERTIES:\n :ID: %{id}\n :LOCATION: %{location}\n:END:\n"
+  "** %{summary}\nSCHEDULED: %{timestamp}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}:END:\n"
   "org-mode text representation of oevent."
   :group 'gcal-org
   :type 'string)
 
 (defun gcal-oevent-format (oevent &optional format)
-  (let ((dic (list
-              (cons "%{summary}" (gcal-oevent-summary oevent))
-              (cons "%{timestamp}" (gcal-ts-format-org-range
-                                    (gcal-oevent-ts-start oevent)
-                                    (gcal-oevent-ts-end oevent)))
-              (cons "%{id}" (gcal-oevent-id oevent))
-              (cons "%{ord}" (gcal-oevent-ord oevent))
-              (cons "%{ts-start}" (gcal-oevent-ts-start oevent))
-              (cons "%{ts-end}" (gcal-oevent-ts-end oevent))
-              (cons "%{ts-prefix}" (gcal-oevent-ts-prefix oevent))
-              (cons "%{location}" (gcal-oevent-location oevent)))))
+  (let* ((location (gcal-oevent-location oevent))
+         (dic (list
+               (cons "%{summary}" (gcal-oevent-summary oevent))
+               (cons "%{timestamp}" (gcal-ts-format-org-range
+                                     (gcal-oevent-ts-start oevent)
+                                     (gcal-oevent-ts-end oevent)))
+               (cons "%{id}" (gcal-oevent-id oevent))
+               (cons "%{ord}" (gcal-oevent-ord oevent))
+               (cons "%{ts-start}" (gcal-oevent-ts-start oevent))
+               (cons "%{ts-end}" (gcal-oevent-ts-end oevent))
+               (cons "%{ts-prefix}" (gcal-oevent-ts-prefix oevent))
+               (cons "%{location}" location)
+               (cons "%{propname-location-br}"
+                     (if location (format " :LOCATION: %s\n" location) "")))))
 
     (replace-regexp-in-string
      "%{[^}]+}"
