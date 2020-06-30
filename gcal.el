@@ -315,10 +315,7 @@ json-read-from-string)."
 
 (defun gcal-access-token-params ()
   `(
-    ("access_token" . ,(gcal-access-token))
-    ("key" . ,gcal-client-secret)
-    ("grant_type" . "authorization_code")
-    ))
+    ("access_token" . ,(gcal-access-token))))
 
 
 
