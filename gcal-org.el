@@ -46,6 +46,13 @@
 (defun gcal-oevent-ts-end (oevent) (plist-get oevent :ts-end))
 (defun gcal-oevent-location (oevent) (plist-get oevent :location))
 
+(defcustom gcal-org-allowed-timestamp-prefix '(nil "SCHEDULED" "DEADLINE")
+  "パースする際にイベントとみなされるタイムスタンプの接頭辞を持ちます。
+ここに含まれない接頭辞のついたタイムスタンプは無視され、イベントとして扱われません。
+`nil'は接尾辞なしを表わします。"
+  :group 'gcal
+  :type '(repeat (choice (const "SCHEDULED") (const "DEADLINE") (const nil))))
+
 
 ;;
 ;; Parse org-mode document
@@ -76,7 +83,9 @@
         (goto-char (match-beginning 0))
         (let* ((ts-prefix  (if (looking-back "\\(SCHEDULED\\|DEADLINE\\): *")
                                (match-string-no-properties 1)))
-               (id         (org-id-get-create)) ;; change (point)
+               (ts-prefix-allowed (member ts-prefix gcal-org-allowed-timestamp-prefix))
+               ;; ID is not needed when ts-prefix is not allowed.
+               (id         (when ts-prefix-allowed (org-id-get-create))) ;; change (point)
                (location   (org-entry-get (point) "LOCATION"))
                (summary    (substring-no-properties (org-get-heading t t)))
                (ts         (cadr (org-element-timestamp-parser)))
@@ -105,12 +114,13 @@
                              :location location))
                )
 
-          (when (null same-entry-info)  ;; New ID found
-            (setq same-entry-info (list id nil))
-            (push same-entry-info entries))
+          (when ts-prefix-allowed
+            (when (null same-entry-info)  ;; New ID found
+              (setq same-entry-info (list id nil))
+              (push same-entry-info entries))
 
-          (push oevent (nth 1 same-entry-info))
-          (push oevent events)
+            (push oevent (nth 1 same-entry-info))
+            (push oevent events))
           (goto-char ts-end-pos)))
       (nreverse events))))
 
