@@ -268,7 +268,7 @@ json-read-from-string)."
 (defun gcal-oauth-get-refresh-token (refresh-token token-url client-id client-secret)
   "リフレッシュされたアクセストークンを取得します。JSONをリストへ変換したもので返します。"
   (gcal-retrieve-json-post-www-form
-   gcal-token-url
+   token-url
    `(
      ("client_id" . ,client-id)
      ("client_secret" . ,client-secret)
