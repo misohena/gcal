@@ -695,7 +695,8 @@ old-events will be destroyed."
        . ((private
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
               (gcalOrd . ,ord)
-              ,@(when summary-prefix `((gcalSummaryPrefix . ,summary-prefix)))))))
+              ,@(when (string-empty-p summary-prefix)
+                  `((gcalSummaryPrefix . ,summary-prefix)))))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -738,8 +739,8 @@ old-events will be destroyed."
        :id id
        :ord ord
        :summary
-       (if (eq 0 (string-match (regexp-quote summary-prefix) summary))
-           (substring summary (match-end 0))
+       (if (string-prefix-p summary-prefix summary)
+           (string-remove-prefix summary-prefix summary)
          (display-warning
           :error
           (format "gcal.el: parental path of summary has changed:
@@ -751,7 +752,7 @@ old-events will be destroyed."
        :ts-start ts-start
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
        :location location
-       :summary-prefix summary-prefix
+       :summary-prefix (or summary-prefix "")
        )))))
 
 
