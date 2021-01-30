@@ -338,7 +338,7 @@ old-events will be destroyed."
 
     ;; check error
     (if (gcal-failed-p new-events)
-        (error ("error %s" new-events)))
+        (error "error %s" new-events))
 
     ;; merge
     (gcal-oevents-diff
