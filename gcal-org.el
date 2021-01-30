@@ -76,7 +76,7 @@
 内でのタイムスタンプの序数を持たせています。
 "
   (save-excursion
-    (beginning-of-buffer)
+    (goto-char (point-min))
     (let (entries events)
       ;; search timestamps
       (while (re-search-forward org-ts-regexp nil t)
