@@ -407,7 +407,7 @@ old-events will be destroyed."
       (gcal-oevent-location new-oe) ;;new-value
       (org-entry-get (point) "LOCATION") ;;curr-value
       (lambda (value) (org-set-property "LOCATION" value)) ;;update org
-      (lambda (value) (setq old-oe (plist-put old-oe :summary value)))) ;;update object
+      (lambda (value) (setq old-oe (plist-put old-oe :location value)))) ;;update object
      ;; ts
      (let ((new-ts-prefix (gcal-oevent-ts-prefix new-oe)))
        (if (stringp new-ts-prefix)
