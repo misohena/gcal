@@ -116,10 +116,12 @@
                             (plist-get ts :minute-end)))
                (same-entry-info  (assoc id entries))
                (same-entry-count (length (nth 1 same-entry-info)))
-               (summary-prefix (gcal-org-make-summary-prefix
-                                (org-get-outline-path)
-                                gcal-org-header-separator
-                                gcal-org-include-parents-header-maximum))
+               (summary-prefix (if (eq gcal-org-include-parents-header-maximum 0)
+                                   ""
+                                 (gcal-org-make-summary-prefix
+                                  (org-get-outline-path)
+                                  gcal-org-header-separator
+                                  gcal-org-include-parents-header-maximum)))
                (oevent      (make-gcal-oevent
                              :id id
                              :ord same-entry-count
