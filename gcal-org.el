@@ -45,6 +45,9 @@
 (defun gcal-oevent-ts-start (oevent) (plist-get oevent :ts-start))
 (defun gcal-oevent-ts-end (oevent) (plist-get oevent :ts-end))
 (defun gcal-oevent-location (oevent) (plist-get oevent :location))
+(defun gcal-oevent-path (oevent) (plist-get oevent :path))
+(defun gcal-oevent-separator (oevent) (plist-get oevent :separator))
+(defun gcal-oevent-header-maximum (oevent) (plist-get oevent :header-maximum))
 
 (defcustom gcal-org-allowed-timestamp-prefix '(nil "SCHEDULED" "DEADLINE")
   "パースする際にイベントとみなされるタイムスタンプの接頭辞を持ちます。
@@ -126,7 +129,10 @@
                              :ts-prefix ts-prefix
                              :ts-start ts-start
                              :ts-end ts-end
-                             :location location))
+                             :location location
+                             :path (org-get-outline-path)
+                             :separator gcal-org-header-separator
+                             :header-maximum gcal-org-include-parents-header-maximum))
                )
 
           (when ts-prefix-allowed
@@ -425,11 +431,19 @@ old-events will be destroyed."
      ;; summary
      (gcal-org-pull-merge-property
       "headline"
-      (gcal-oevent-summary old-oe) ;;old-value
-      (gcal-oevent-summary new-oe) ;;new-value
+      (gcal-oevent-make-header-line old-oe) ;;old-value
+      (gcal-oevent-make-header-line new-oe) ;;new-value
       (substring-no-properties (org-get-heading t t)) ;;curr-value
       (lambda (value) (gcal-org-set-heading-text value)) ;;update org
-      (lambda (value) (setq old-oe (plist-put old-oe :summary value)))) ;;update object
+      (lambda (value)
+        (setq old-oe (plist-put
+                      old-oe
+                      :summary
+                      (gcal-org-make-oevent-summary
+                       value
+                       (gcal-oevent-path new-oe)
+                       (gcal-oevent-separator new-oe)
+                       (gcal-oevent-header-maximum new-oe)))))) ;;update object
      ;; location
      (gcal-org-pull-merge-property
       "location"
@@ -614,6 +628,31 @@ old-events will be destroyed."
 
 
 
+(defun gcal-oevent-make-header-line (oevent)
+  (let* ((summary (plist-get oevent :summary))
+         (path (plist-get oevent :path))
+         (separator (plist-get oevent :separator))
+         (header-maximum (plist-get oevent :header-maximum))
+         (path-str (apply #'concat
+                          (mapcan (lambda (elt) (list elt separator))
+                                  (nthcdr
+                                   (if (numberp header-maximum)
+                                       (max
+                                        (- (length path) header-maximum)
+                                        0)
+                                     0)
+                                   path)))))
+    (if (string-match
+         (regexp-quote path-str)
+         summary)
+        (substring summary (match-end 0))
+      (display-warning
+       :error
+       (format "gcal.el: parental path of summary has changed:
+   parent before change: \"%s\"
+   summary from google calender: \"%s\""
+               path-str summary))
+      summary)))
 
 
 ;;
@@ -682,7 +721,10 @@ old-events will be destroyed."
          (ts-start  (gcal-oevent-ts-start oevent))
          (ts-end    (gcal-oevent-ts-end oevent))
          (location  (gcal-oevent-location oevent))
-         (ord  (gcal-oevent-ord oevent)))
+         (ord  (gcal-oevent-ord oevent))
+         (path (gcal-oevent-path oevent))
+         (separator      (gcal-oevent-separator oevent))
+         (header-maximum (prin1-to-string (gcal-oevent-header-maximum oevent))))
     `((id . ,(gcal-oevent-gevent-id oevent))
       (status . "confirmed")
       (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
@@ -691,7 +733,10 @@ old-events will be destroyed."
       (extendedProperties
        . ((private
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
-              (gcalOrd . ,ord)))))
+              (gcalOrd . ,ord)
+              ,@(when path `((gcalPath . ,(prin1-to-string path))
+                             (gcalSeparator . ,separator)
+                             (gcalHeaderMaximum . ,header-maximum)))))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -714,8 +759,12 @@ old-events will be destroyed."
          (ex-prop-ord (cdr (assq 'gcalOrd ex-props)))
          (ex-prop-ts-prefix (cdr (assq 'gcalTsPrefix ex-props)))
          (created-on-google (and (null ex-prop-ord) (null ex-prop-ts-prefix)))
-         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix)))
-
+         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix))
+         (path (cdr (assq 'gcalPath ex-props)))
+         (separator (cdr (assq 'gcalSeparator ex-props)))
+         (header-maximum-string (cdr (assq 'gcalHeaderMaximum ex-props)))
+         (header-maximum (when header-maximum-string
+                           (read header-maximum-string))))
     (cond
      ((not (stringp id))
       (message "invalid event id found '%s'" id)
@@ -735,6 +784,9 @@ old-events will be destroyed."
        :ts-start ts-start
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
        :location location
+       :path (when path (read path))
+       :separator separator
+       :header-maximum header-maximum
        )))))
 
 
