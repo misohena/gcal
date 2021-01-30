@@ -98,19 +98,11 @@
                ;; ID is not needed when ts-prefix is not allowed.
                (id         (when ts-prefix-allowed (org-id-get-create))) ;; change (point)
                (location   (org-entry-get (point) "LOCATION"))
-               (summary
-                (string-join
-                 (let ((path (org-get-outline-path)))
-                   (append
-                    (nthcdr
-                    (if (numberp gcal-org-include-parents-header-maximum)
-                        (max
-                         (- (length path) gcal-org-include-parents-header-maximum)
-                         0)
-                      0)
-                    path)
-                    (list (org-get-heading t t))))
-                 gcal-org-header-separator))
+               (summary (gcal-org-make-oevent-summary
+                         (substring-no-properties (org-get-heading t t))
+                         (org-get-outline-path)
+                         gcal-org-header-separator
+                         gcal-org-include-parents-header-maximum))
                (ts         (cadr (org-element-timestamp-parser)))
                (ts-end-pos (plist-get ts :end))
                (ts-start   (list
@@ -146,6 +138,21 @@
             (push oevent events))
           (goto-char ts-end-pos)))
       (nreverse events))))
+
+(defun gcal-org-make-oevent-summary (heading path separator header-maximum)
+  "oeventのサマリーを生成します。
+HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
+  (string-join
+   (append
+    (nthcdr
+     (if (numberp header-maximum)
+         (max
+          (- (length path) header-maximum)
+          0)
+       0)
+     path)
+    (list heading))
+   separator))
 
 
 
