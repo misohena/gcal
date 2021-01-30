@@ -60,13 +60,13 @@
   "イベントのsummaryに何階層上までのヘッダを含めるかを表します。
 `t'は全ての親階層を含めることを表します。"
   :group 'gcal
-  :type '(choice number (const t)))
+  :type '(choice integer (const t)))
 
 (defcustom gcal-org-header-separator "/"
   "`gcal-org-include-parents-header-maximum'が0でないときに、
 イベントのsummaryにおいてヘッダを隔てる文字列を表わします。"
   :group 'gcal
-  :type '(choice number (const t)))
+  :type 'string)
 
 ;;
 ;; Parse org-mode document
@@ -151,7 +151,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
   (string-join
    (append
     (nthcdr
-     (if (numberp header-maximum)
+     (if (integerp header-maximum)
          (max
           (- (length path) header-maximum)
           0)
@@ -636,7 +636,7 @@ old-events will be destroyed."
          (path-str (apply #'concat
                           (mapcan (lambda (elt) (list elt separator))
                                   (nthcdr
-                                   (if (numberp header-maximum)
+                                   (if (integerp header-maximum)
                                        (max
                                         (- (length path) header-maximum)
                                         0)
