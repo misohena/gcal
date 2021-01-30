@@ -579,7 +579,7 @@ old-events will be destroyed."
       (insert "* " headline "\n")
       (beginning-of-line 0))
 
-    (next-line)
+    (forward-line)
     (insert string)))
 
 
