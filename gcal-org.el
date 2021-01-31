@@ -697,7 +697,7 @@ old-events will be destroyed."
        . ((private
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
               (gcalOrd . ,ord)
-              ,@(when (string-empty-p summary-prefix)
+              ,@(when (not (string-empty-p summary-prefix))
                   `((gcalSummaryPrefix . ,summary-prefix)))))))
       ,@(if location `((location . ,location)))
       )))
