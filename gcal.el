@@ -77,21 +77,21 @@
   "Parse HTTP response in buffer."
   (with-current-buffer buffer
     ;; Response Line (ex: HTTP/1.1 200 OK)
-    (beginning-of-buffer)
+    (goto-char (point-min))
     (if (looking-at "^HTTP/[^ ]+ \\([0-9]+\\) ?\\(.*\\)$")
         (let ((status (string-to-number (match-string 1)))
               (message (match-string 2))
               (headers)
               (body))
-          (next-line)
+          (forward-line)
           ;; Header Lines
           (while (not (eolp))
             (if (looking-at "^\\([^:]+\\): \\(.*\\)$")
                 (push (cons (match-string 1) (match-string 2)) headers))
-            (next-line))
+            (forward-line))
 
           ;; Body
-          (next-line)
+          (forward-line)
           (setq body (buffer-substring (point) (point-max)))
 
           ;; Result
@@ -268,7 +268,7 @@ json-read-from-string)."
 (defun gcal-oauth-get-refresh-token (refresh-token token-url client-id client-secret)
   "リフレッシュされたアクセストークンを取得します。JSONをリストへ変換したもので返します。"
   (gcal-retrieve-json-post-www-form
-   gcal-token-url
+   token-url
    `(
      ("client_id" . ,client-id)
      ("client_secret" . ,client-secret)

@@ -3,7 +3,7 @@
 ;; Copyright (C) 2016  AKIYAMA Kouhei
 
 ;; Author: AKIYAMA Kouhei <misohena@gmail.com>
-;; Keywords: 
+;; Keywords:
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -45,6 +45,7 @@
 (defun gcal-oevent-ts-start (oevent) (plist-get oevent :ts-start))
 (defun gcal-oevent-ts-end (oevent) (plist-get oevent :ts-end))
 (defun gcal-oevent-location (oevent) (plist-get oevent :location))
+(defun gcal-oevent-summary-prefix (oevent) (plist-get oevent :summary-prefix))
 
 (defcustom gcal-org-allowed-timestamp-prefix '(nil "SCHEDULED" "DEADLINE")
   "パースする際にイベントとみなされるタイムスタンプの接頭辞を持ちます。
@@ -53,20 +54,31 @@
   :group 'gcal
   :type '(repeat (choice (const "SCHEDULED") (const "DEADLINE") (const nil))))
 
+(defcustom gcal-org-include-parents-header-maximum 0
+  "イベントのsummaryに何階層上までのヘッダを含めるかを表します。
+`t'は全ての親階層を含めることを表します。"
+  :group 'gcal
+  :type '(choice integer (const t)))
+
+(defcustom gcal-org-header-separator "/"
+  "`gcal-org-include-parents-header-maximum'が0でないときに、
+イベントのsummaryにおいてヘッダを隔てる文字列を表わします。"
+  :group 'gcal
+  :type 'string)
 
 ;;
 ;; Parse org-mode document
 ;;
 
-(defun gcal-org-parse-file (file)
+(defun gcal-org-parse-file (file &optional beginning-time end-time)
   "指定されたファイルからイベントを集めます。"
   (save-window-excursion
     (save-excursion
       (find-file file)
-      (gcal-org-parse-buffer)
+      (gcal-org-parse-buffer beginning-time end-time)
       )))
 
-(defun gcal-org-parse-buffer ()
+(defun gcal-org-parse-buffer (&optional beginning-time end-time)
   "現在のバッファからイベントを集めます。
 
 タイムスタンプ一つ毎に一つのイベントを作ります。Agendaのデフォル
@@ -76,7 +88,7 @@
 内でのタイムスタンプの序数を持たせています。
 "
   (save-excursion
-    (beginning-of-buffer)
+    (goto-char (point-min))
     (let (entries events)
       ;; search timestamps
       (while (re-search-forward org-ts-regexp nil t)
@@ -104,6 +116,12 @@
                             (plist-get ts :minute-end)))
                (same-entry-info  (assoc id entries))
                (same-entry-count (length (nth 1 same-entry-info)))
+               (summary-prefix (if (eq gcal-org-include-parents-header-maximum 0)
+                                   ""
+                                 (gcal-org-make-summary-prefix
+                                  (org-get-outline-path)
+                                  gcal-org-header-separator
+                                  gcal-org-include-parents-header-maximum)))
                (oevent      (make-gcal-oevent
                              :id id
                              :ord same-entry-count
@@ -111,10 +129,27 @@
                              :ts-prefix ts-prefix
                              :ts-start ts-start
                              :ts-end ts-end
-                             :location location))
+                             :location location
+                             :summary-prefix summary-prefix))
                )
 
-          (when ts-prefix-allowed
+          (when (and ts-prefix-allowed
+                     (or (null beginning-time)
+                         (<= beginning-time
+                             (time-to-days
+                              (encode-time
+                               0 0 0
+                               (plist-get ts :day-end)
+                               (plist-get ts :month-end)
+                               (plist-get ts :year-end)))))
+                     (or (null end-time)
+                         (<= (time-to-days
+                              (encode-time
+                               0 0 0
+                               (plist-get ts :day-start)
+                               (plist-get ts :month-start)
+                               (plist-get ts :year-start)))
+                             end-time)))
             (when (null same-entry-info)  ;; New ID found
               (setq same-entry-info (list id nil))
               (push same-entry-info entries))
@@ -124,22 +159,35 @@
           (goto-char ts-end-pos)))
       (nreverse events))))
 
+(defun gcal-org-make-summary-prefix (path separator header-maximum)
+  "summary-prefixを生成します。
+HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
+  (apply #'concat
+         (mapcan (lambda (elt) (list elt separator))
+                 (nthcdr
+                  (if (integerp header-maximum)
+                      (max
+                       (- (length path) header-maximum)
+                       0)
+                    0)
+                  path))))
+
 
 
 ;;
 ;; Push org file to Google Calendar
 ;;
 
-(defun gcal-org-push-file (calendar-id file &optional cache-file)
+(defun gcal-org-push-file (calendar-id file &optional cache-file beginning-time end-time)
   (if cache-file
-      (gcal-org-push-file-specified-cache calendar-id file cache-file)
-    (gcal-org-push-file-global-cache calendar-id file)))
+      (gcal-org-push-file-specified-cache calendar-id file cache-file beginning-time end-time)
+    (gcal-org-push-file-global-cache calendar-id file beginning-time end-time)))
 
     ;; use specified cache-file
 
-(defun gcal-org-push-file-specified-cache (calendar-id file cache-file)
-  (let ((old-events (gcal-oevents-load cache-file))
-        (new-events (gcal-org-parse-file file)))
+(defun gcal-org-push-file-specified-cache (calendar-id file cache-file &optional beginning-time end-time)
+  (let ((old-events (gcal-oevents-load cache-file beginning-time end-time))
+        (new-events (gcal-org-parse-file file beginning-time end-time)))
 
     (gcal-oevents-save
      cache-file
@@ -151,22 +199,45 @@
   (with-temp-file file
     (pp oevents (current-buffer))))
 
-(defun gcal-oevents-load (file)
+(defun gcal-oevents-load (file &optional beginning-time end-time)
   "Load list of gcal-oevent from FILE."
-  (if (file-exists-p file)
-      (ignore-errors
-        (with-temp-buffer
-          (insert-file-contents file)
-          (read (buffer-string))))))
+  (delq
+   nil
+   (mapcar
+    (lambda (oevent)
+      (let ((ts-start (gcal-oevent-ts-start oevent))
+            (ts-end   (gcal-oevent-ts-end oevent)))
+        (when (and (or (null beginning-time)
+                       (<= beginning-time
+                           (time-to-days
+                            (encode-time
+                             0 0 0
+                             (nth 2 ts-end)     ;day
+                             (nth 1 ts-end)     ;month
+                             (nth 0 ts-end))))) ;year
+                   (or (null end-time)
+                       (<= (time-to-days
+                            (encode-time
+                             0 0 0
+                             (nth 2 ts-start)   ;day
+                             (nth 1 ts-start)   ;month
+                             (nth 0 ts-start))) ;year
+                           end-time)))
+          oevent)))
+    (if (file-exists-p file)
+        (ignore-errors
+          (with-temp-buffer
+            (insert-file-contents file)
+            (read (buffer-string))))))))
 
     ;; use global-cache(gcal-org-pushed-events-file)
 
-(defun gcal-org-push-file-global-cache (calendar-id file)
+(defun gcal-org-push-file-global-cache (calendar-id file &optional beginning-time end-time)
   (let ((calfile-cache (gcal-org-pushed-events-cache calendar-id file)))
 
     (setf (nth 1 calfile-cache)
           (gcal-org-push-oevents calendar-id
-                                 (gcal-org-parse-file file) ;;new events
+                                 (gcal-org-parse-file file beginning-time end-time) ;;new events
                                  (nth 1 calfile-cache)))) ;;old events
 
   (gcal-org-pushed-events-save))
@@ -338,7 +409,7 @@ old-events will be destroyed."
 
     ;; check error
     (if (gcal-failed-p new-events)
-        (error ("error %s" new-events)))
+        (error "error %s" new-events))
 
     ;; merge
     (gcal-oevents-diff
@@ -407,7 +478,7 @@ old-events will be destroyed."
       (gcal-oevent-location new-oe) ;;new-value
       (org-entry-get (point) "LOCATION") ;;curr-value
       (lambda (value) (org-set-property "LOCATION" value)) ;;update org
-      (lambda (value) (setq old-oe (plist-put old-oe :summary value)))) ;;update object
+      (lambda (value) (setq old-oe (plist-put old-oe :location value)))) ;;update object
      ;; ts
      (let ((new-ts-prefix (gcal-oevent-ts-prefix new-oe)))
        (if (stringp new-ts-prefix)
@@ -579,7 +650,7 @@ old-events will be destroyed."
       (insert "* " headline "\n")
       (beginning-of-line 0))
 
-    (next-line)
+    (forward-line)
     (insert string)))
 
 
@@ -652,16 +723,20 @@ old-events will be destroyed."
          (ts-start  (gcal-oevent-ts-start oevent))
          (ts-end    (gcal-oevent-ts-end oevent))
          (location  (gcal-oevent-location oevent))
-         (ord  (gcal-oevent-ord oevent)))
+         (ord  (gcal-oevent-ord oevent))
+         (summary-prefix (gcal-oevent-summary-prefix oevent)))
     `((id . ,(gcal-oevent-gevent-id oevent))
       (status . "confirmed")
-      (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
+      (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:")
+                          summary-prefix
+                          summary))
       (start . ,(gcal-ts-to-gtime ts-start))
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
       (extendedProperties
        . ((private
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
-              (gcalOrd . ,ord)))))
+              (gcalOrd . ,ord)
+              ,@(if summary-prefix `((gcalSummaryPrefix . ,summary-prefix)))))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -684,8 +759,15 @@ old-events will be destroyed."
          (ex-prop-ord (cdr (assq 'gcalOrd ex-props)))
          (ex-prop-ts-prefix (cdr (assq 'gcalTsPrefix ex-props)))
          (created-on-google (and (null ex-prop-ord) (null ex-prop-ts-prefix)))
-         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix)))
-
+         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix))
+         (summary-prefix (or (cdr (assq 'gcalSummaryPrefix ex-props)) ""))
+         ;; Strip DL:
+         (summary
+          (if (and (stringp ts-prefix)
+                   (string= ts-prefix "DEADLINE")
+                   (>= (length summary) 3)
+                   (string= (substring summary 0 3) "DL:"))
+              (substring summary 3) summary)))
     (cond
      ((not (stringp id))
       (message "invalid event id found '%s'" id)
@@ -696,15 +778,21 @@ old-events will be destroyed."
       (make-gcal-oevent
        :id id
        :ord ord
-       :summary (if (and (stringp ts-prefix)
-                         (string= ts-prefix "DEADLINE")
-                         (>= (length summary) 3)
-                         (string= (substring summary 0 3) "DL:"))
-                    (substring summary 3) summary) ;;strip "DL:"
+       :summary
+       (if (string-prefix-p summary-prefix summary)
+           (string-remove-prefix summary-prefix summary)
+         (display-warning
+          :error
+          (format "gcal.el: parental path of summary has changed:
+   parent before change: \"%s\"
+   summary from google calender: \"%s\""
+                  summary-prefix summary))
+         summary)
        :ts-prefix ts-prefix
        :ts-start ts-start
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
        :location location
+       :summary-prefix summary-prefix
        )))))
 
 
