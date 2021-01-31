@@ -3,7 +3,7 @@
 ;; Copyright (C) 2016  AKIYAMA Kouhei
 
 ;; Author: AKIYAMA Kouhei <misohena@gmail.com>
-;; Keywords: 
+;; Keywords:
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -45,6 +45,7 @@
 (defun gcal-oevent-ts-start (oevent) (plist-get oevent :ts-start))
 (defun gcal-oevent-ts-end (oevent) (plist-get oevent :ts-end))
 (defun gcal-oevent-location (oevent) (plist-get oevent :location))
+(defun gcal-oevent-summary-prefix (oevent) (plist-get oevent :summary-prefix))
 
 (defcustom gcal-org-allowed-timestamp-prefix '(nil "SCHEDULED" "DEADLINE")
   "パースする際にイベントとみなされるタイムスタンプの接頭辞を持ちます。
@@ -53,6 +54,17 @@
   :group 'gcal
   :type '(repeat (choice (const "SCHEDULED") (const "DEADLINE") (const nil))))
 
+(defcustom gcal-org-include-parents-header-maximum 0
+  "イベントのsummaryに何階層上までのヘッダを含めるかを表します。
+`t'は全ての親階層を含めることを表します。"
+  :group 'gcal
+  :type '(choice integer (const t)))
+
+(defcustom gcal-org-header-separator "/"
+  "`gcal-org-include-parents-header-maximum'が0でないときに、
+イベントのsummaryにおいてヘッダを隔てる文字列を表わします。"
+  :group 'gcal
+  :type 'string)
 
 ;;
 ;; Parse org-mode document
@@ -104,6 +116,12 @@
                             (plist-get ts :minute-end)))
                (same-entry-info  (assoc id entries))
                (same-entry-count (length (nth 1 same-entry-info)))
+               (summary-prefix (if (eq gcal-org-include-parents-header-maximum 0)
+                                   ""
+                                 (gcal-org-make-summary-prefix
+                                  (org-get-outline-path)
+                                  gcal-org-header-separator
+                                  gcal-org-include-parents-header-maximum)))
                (oevent      (make-gcal-oevent
                              :id id
                              :ord same-entry-count
@@ -111,7 +129,8 @@
                              :ts-prefix ts-prefix
                              :ts-start ts-start
                              :ts-end ts-end
-                             :location location))
+                             :location location
+                             :summary-prefix summary-prefix))
                )
 
           (when ts-prefix-allowed
@@ -123,6 +142,19 @@
             (push oevent events))
           (goto-char ts-end-pos)))
       (nreverse events))))
+
+(defun gcal-org-make-summary-prefix (path separator header-maximum)
+  "summary-prefixを生成します。
+HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
+  (apply #'concat
+         (mapcan (lambda (elt) (list elt separator))
+                 (nthcdr
+                  (if (integerp header-maximum)
+                      (max
+                       (- (length path) header-maximum)
+                       0)
+                    0)
+                  path))))
 
 
 
@@ -652,16 +684,21 @@ old-events will be destroyed."
          (ts-start  (gcal-oevent-ts-start oevent))
          (ts-end    (gcal-oevent-ts-end oevent))
          (location  (gcal-oevent-location oevent))
-         (ord  (gcal-oevent-ord oevent)))
+         (ord  (gcal-oevent-ord oevent))
+         (summary-prefix (gcal-oevent-summary-prefix oevent)))
     `((id . ,(gcal-oevent-gevent-id oevent))
       (status . "confirmed")
-      (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:") summary))
+      (summary . ,(concat (if (string= ts-prefix "DEADLINE") "DL:")
+                          summary-prefix
+                          summary))
       (start . ,(gcal-ts-to-gtime ts-start))
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
       (extendedProperties
        . ((private
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
-              (gcalOrd . ,ord)))))
+              (gcalOrd . ,ord)
+              ,@(when (not (string-empty-p summary-prefix))
+                  `((gcalSummaryPrefix . ,summary-prefix)))))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -684,8 +721,15 @@ old-events will be destroyed."
          (ex-prop-ord (cdr (assq 'gcalOrd ex-props)))
          (ex-prop-ts-prefix (cdr (assq 'gcalTsPrefix ex-props)))
          (created-on-google (and (null ex-prop-ord) (null ex-prop-ts-prefix)))
-         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix)))
-
+         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix))
+         (summary-prefix (or (cdr (assq 'gcalSummaryPrefix ex-props)) ""))
+         ;; Strip DL:
+         (summary
+          (if (and (stringp ts-prefix)
+                   (string= ts-prefix "DEADLINE")
+                   (>= (length summary) 3)
+                   (string= (substring summary 0 3) "DL:"))
+              (substring summary 3) summary)))
     (cond
      ((not (stringp id))
       (message "invalid event id found '%s'" id)
@@ -696,15 +740,21 @@ old-events will be destroyed."
       (make-gcal-oevent
        :id id
        :ord ord
-       :summary (if (and (stringp ts-prefix)
-                         (string= ts-prefix "DEADLINE")
-                         (>= (length summary) 3)
-                         (string= (substring summary 0 3) "DL:"))
-                    (substring summary 3) summary) ;;strip "DL:"
+       :summary
+       (if (string-prefix-p summary-prefix summary)
+           (string-remove-prefix summary-prefix summary)
+         (display-warning
+          :error
+          (format "gcal.el: parental path of summary has changed:
+   parent before change: \"%s\"
+   summary from google calender: \"%s\""
+                  summary-prefix summary))
+         summary)
        :ts-prefix ts-prefix
        :ts-start ts-start
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
        :location location
+       :summary-prefix summary-prefix
        )))))
 
 
