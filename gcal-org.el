@@ -722,7 +722,7 @@ old-events will be destroyed."
          (ex-prop-ts-prefix (cdr (assq 'gcalTsPrefix ex-props)))
          (created-on-google (and (null ex-prop-ord) (null ex-prop-ts-prefix)))
          (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix))
-         (summary-prefix (cdr (assq 'gcalSummaryPrefix ex-props)))
+         (summary-prefix (or (cdr (assq 'gcalSummaryPrefix ex-props)) ""))
          ;; Strip DL:
          (summary
           (if (and (stringp ts-prefix)
@@ -754,7 +754,7 @@ old-events will be destroyed."
        :ts-start ts-start
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
        :location location
-       :summary-prefix (or summary-prefix "")
+       :summary-prefix summary-prefix
        )))))
 
 
