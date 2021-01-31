@@ -364,7 +364,7 @@ old-events will be destroyed."
                               &optional params)
 
   (let* (result-events
-         (cur-events (gcal-org-parse-file file))
+         ;;(cur-events (gcal-org-parse-file file))
          (old-events (gcal-oevents-load cache-file))
          (new-events (gcal-org-pull-oevents calendar-id params)))
 
@@ -712,8 +712,8 @@ old-events will be destroyed."
          (end   (cdr (assq 'end gevent)))
          (ts-start (if start (gcal-ts-from-gtime start)))
          (ts-end   (if start (gcal-ts-from-gtime end)))
-         (created (cdr (assq 'created gevent)))
-         (updated (cdr (assq 'updated gevent)))
+         ;;(created (cdr (assq 'created gevent)))
+         ;;(updated (cdr (assq 'updated gevent)))
          (summary (cdr (assq 'summary gevent)))
          (location (cdr (assq 'location gevent)))
          (ex-props (cdr (assq 'private (cdr (assq 'extendedProperties gevent)))))
@@ -872,7 +872,7 @@ base32hexへ変換します。"
         (mm (nth 4 ts)))
     (list y m (if date-only (1+ d) d) hh (if date-only mm (1+ mm)))))
 
-(defun gcal-ts-end-exclusive (ts-start ts-end)
+(defun gcal-ts-end-exclusive (_ts-start ts-end)
   "終了日がその日自身を含まないように補正します。"
   (if (gcal-ts-date-only ts-end) ;;<2016-05-26 Thu>--<2016-05-27 Fri> => 28
       (gcal-ts-inc ts-end)
