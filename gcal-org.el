@@ -623,9 +623,9 @@ old-events will be destroyed."
 ;;
 
 (defun gcal-oevents-find (oevents id ord)
-  (find-if (lambda (oe) (and (equal (gcal-oevent-id oe) id)
-                             (equal (gcal-oevent-ord oe) ord)))
-           oevents))
+  (cl-find-if (lambda (oe) (and (equal (gcal-oevent-id oe) id)
+                                (equal (gcal-oevent-ord oe) ord)))
+              oevents))
 
 (defun gcal-oevents-find-first-and-remove (cons-oevents id ord)
   "cons-oeventsのcdr以降からid,ordとマッチするイベントを探し、そ

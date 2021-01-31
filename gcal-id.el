@@ -30,12 +30,12 @@
   (and
    (stringp string)
    (not
-    (find-if-not (lambda (c) (position c gcal-base32hex-table)) (upcase string)))))
+    (cl-find-if-not (lambda (c) (cl-position c gcal-base32hex-table)) (upcase string)))))
 
 (defun gcal-base32hex-decode (string)
   "RFC2938"
   (let* ((nums (mapcar
-                (lambda (c) (position c gcal-base32hex-table))
+                (lambda (c) (cl-position c gcal-base32hex-table))
                 (upcase string)))
          (nums-len (length nums))
          (i 0)
@@ -128,12 +128,12 @@
           (= (length (nth 2 compos)) 4)
           (= (length (nth 3 compos)) 4)
           (= (length (nth 4 compos)) 12)
-          (null (find-if-not (lambda (c)
-                               (or (and (>= c ?0) (<= c ?9))
-                                   (and (>= c ?a) (<= c ?f))
-                                   (and (>= c ?A) (<= c ?F))
-                                   (= c ?-)))
-                             uuid))))))
+          (null (cl-find-if-not (lambda (c)
+                                  (or (and (>= c ?0) (<= c ?9))
+                                      (and (>= c ?a) (<= c ?f))
+                                      (and (>= c ?A) (<= c ?F))
+                                      (= c ?-)))
+                                uuid))))))
 
 (provide 'gcal-id)
 ;;; gcal-id.el ends here

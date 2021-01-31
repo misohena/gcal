@@ -49,7 +49,6 @@
 (require 'url)
 (require 'url-util)
 (require 'json)
-(require 'cl)
 (require 'parse-time)
 
 (defcustom gcal-client-id ""
