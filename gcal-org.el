@@ -70,15 +70,15 @@
 ;; Parse org-mode document
 ;;
 
-(defun gcal-org-parse-file (file)
+(defun gcal-org-parse-file (file &optional beginning-time end-time)
   "指定されたファイルからイベントを集めます。"
   (save-window-excursion
     (save-excursion
       (find-file file)
-      (gcal-org-parse-buffer)
+      (gcal-org-parse-buffer beginning-time end-time)
       )))
 
-(defun gcal-org-parse-buffer ()
+(defun gcal-org-parse-buffer (&optional beginning-time end-time)
   "現在のバッファからイベントを集めます。
 
 タイムスタンプ一つ毎に一つのイベントを作ります。Agendaのデフォル
@@ -133,7 +133,23 @@
                              :summary-prefix summary-prefix))
                )
 
-          (when ts-prefix-allowed
+          (when (and ts-prefix-allowed
+                     (or (null beginning-time)
+                         (<= beginning-time
+                             (time-to-days
+                              (encode-time
+                               0 0 0
+                               (plist-get ts :day-end)
+                               (plist-get ts :month-end)
+                               (plist-get ts :year-end)))))
+                     (or (null end-time)
+                         (<= (time-to-days
+                              (encode-time
+                               0 0 0
+                               (plist-get ts :day-start)
+                               (plist-get ts :month-start)
+                               (plist-get ts :year-start)))
+                             end-time)))
             (when (null same-entry-info)  ;; New ID found
               (setq same-entry-info (list id nil))
               (push same-entry-info entries))
@@ -162,16 +178,16 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 ;; Push org file to Google Calendar
 ;;
 
-(defun gcal-org-push-file (calendar-id file &optional cache-file)
+(defun gcal-org-push-file (calendar-id file &optional cache-file beginning-time end-time)
   (if cache-file
-      (gcal-org-push-file-specified-cache calendar-id file cache-file)
-    (gcal-org-push-file-global-cache calendar-id file)))
+      (gcal-org-push-file-specified-cache calendar-id file cache-file beginning-time end-time)
+    (gcal-org-push-file-global-cache calendar-id file beginning-time end-time)))
 
     ;; use specified cache-file
 
-(defun gcal-org-push-file-specified-cache (calendar-id file cache-file)
-  (let ((old-events (gcal-oevents-load cache-file))
-        (new-events (gcal-org-parse-file file)))
+(defun gcal-org-push-file-specified-cache (calendar-id file cache-file &optional beginning-time end-time)
+  (let ((old-events (gcal-oevents-load cache-file beginning-time end-time))
+        (new-events (gcal-org-parse-file file beginning-time end-time)))
 
     (gcal-oevents-save
      cache-file
@@ -183,22 +199,45 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
   (with-temp-file file
     (pp oevents (current-buffer))))
 
-(defun gcal-oevents-load (file)
+(defun gcal-oevents-load (file &optional beginning-time end-time)
   "Load list of gcal-oevent from FILE."
-  (if (file-exists-p file)
-      (ignore-errors
-        (with-temp-buffer
-          (insert-file-contents file)
-          (read (buffer-string))))))
+  (delq
+   nil
+   (mapcar
+    (lambda (oevent)
+      (let ((ts-start (gcal-oevent-ts-start oevent))
+            (ts-end   (gcal-oevent-ts-end oevent)))
+        (when (and (or (null beginning-time)
+                       (<= beginning-time
+                           (time-to-days
+                            (encode-time
+                             0 0 0
+                             (nth 2 ts-end)     ;day
+                             (nth 1 ts-end)     ;month
+                             (nth 0 ts-end))))) ;year
+                   (or (null end-time)
+                       (<= (time-to-days
+                            (encode-time
+                             0 0 0
+                             (nth 2 ts-start)   ;day
+                             (nth 1 ts-start)   ;month
+                             (nth 0 ts-start))) ;year
+                           end-time)))
+          oevent)))
+    (if (file-exists-p file)
+        (ignore-errors
+          (with-temp-buffer
+            (insert-file-contents file)
+            (read (buffer-string))))))))
 
     ;; use global-cache(gcal-org-pushed-events-file)
 
-(defun gcal-org-push-file-global-cache (calendar-id file)
+(defun gcal-org-push-file-global-cache (calendar-id file &optional beginning-time end-time)
   (let ((calfile-cache (gcal-org-pushed-events-cache calendar-id file)))
 
     (setf (nth 1 calfile-cache)
           (gcal-org-push-oevents calendar-id
-                                 (gcal-org-parse-file file) ;;new events
+                                 (gcal-org-parse-file file beginning-time end-time) ;;new events
                                  (nth 1 calfile-cache)))) ;;old events
 
   (gcal-org-pushed-events-save))
