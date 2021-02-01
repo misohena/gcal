@@ -101,7 +101,8 @@
       ;; search timestamps
       (while (re-search-forward org-ts-regexp nil t)
         (goto-char (match-beginning 0))
-        (let* ((ts-prefix  (if (looking-back "\\(SCHEDULED\\|DEADLINE\\): *")
+        (let* ((ts-prefix  (if (looking-back "\\(SCHEDULED\\|DEADLINE\\): *"
+                                             (line-beginning-position))
                                (match-string-no-properties 1)))
                (ts-prefix-allowed (member ts-prefix gcal-org-allowed-timestamp-prefix))
                ;; ID is not needed when ts-prefix is not allowed.
