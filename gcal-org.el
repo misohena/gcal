@@ -71,12 +71,20 @@
 ;;
 
 (defun gcal-org-parse-file (file)
-  "指定されたファイルからイベントを集めます。"
-  (save-window-excursion
-    (save-excursion
-      (find-file file)
-      (gcal-org-parse-buffer)
-      )))
+  "指定されたファイルからイベントを集めます。
+
+すでに FILE を開いている場合はそのバッファから集めます。"
+  ;;@todo Use temporary buffer when not visiting file ?
+  ;; (if-let ((buffer (get-file-buffer file)))
+  ;;     (with-current-buffer buffer
+  ;;       (gcal-org-parse-buffer))
+  ;;   (with-temp-buffer
+  ;;     (insert-file-contents file)
+  ;;     (org-mode)
+  ;;     (gcal-org-parse-buffer)))
+
+  (with-current-buffer (find-file-noselect file)
+    (gcal-org-parse-buffer)))
 
 (defun gcal-org-parse-buffer ()
   "現在のバッファからイベントを集めます。
@@ -400,9 +408,8 @@ old-events will be destroyed."
       (progn
         (message "Event is already exist '%s'" (gcal-oevent-summary new-oe))
         nil)
-    (save-window-excursion
+    (with-current-buffer (find-file-noselect file)
       (save-excursion
-        (set-buffer (find-file-noselect file))
         (gcal-org-insert-string-after-headline (gcal-oevent-format new-oe) headline)
         (message "Add event %s" (gcal-oevent-summary new-oe))
         new-oe))))
@@ -479,14 +486,14 @@ old-events will be destroyed."
   (let* ((id (gcal-oevent-id oevent))
          (place (org-id-find-id-in-file id file)))
     (if place
-        (save-window-excursion
+        (with-current-buffer (find-file-noselect (car place))
           (save-excursion
-            (find-file (car place))
-            (widen)
-            (outline-show-all)
-            (org-id-goto id)
+            (save-restriction
+              (widen)
+              (outline-show-all)
+              (org-id-goto id)
 
-            (funcall func)))
+              (funcall func))))
       ;;not found
       ret-if-failed)))
 
@@ -598,21 +605,22 @@ old-events will be destroyed."
 (defun gcal-org-insert-string-after-headline (string headline)
   "Insert STRING after specified HEADLINE."
   (save-excursion
-    (widen)
-    (goto-char (point-min))
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
 
-    (if (re-search-forward
-         (format org-complex-heading-regexp-format (regexp-quote headline))
-         nil t)
-        (goto-char (point-at-bol))
-      ;; insert new headline
-      (goto-char (point-max))
-      (if (not (bolp)) (insert "\n"))
-      (insert "* " headline "\n")
-      (beginning-of-line 0))
+      (if (re-search-forward
+           (format org-complex-heading-regexp-format (regexp-quote headline))
+           nil t)
+          (goto-char (point-at-bol))
+        ;; insert new headline
+        (goto-char (point-max))
+        (if (not (bolp)) (insert "\n"))
+        (insert "* " headline "\n")
+        (beginning-of-line 0))
 
-    (forward-line)
-    (insert string)))
+      (forward-line)
+      (insert string))))
 
 
 
