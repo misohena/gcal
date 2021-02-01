@@ -338,8 +338,11 @@ old-events will be destroyed."
   "Check response and add event to result-events list."
   (if (gcal-succeeded-p res)
       (if succ-oe (cons succ-oe result-events) result-events)
-    (message "Failed to %s event '%s' err=%s"
-             op (gcal-oevent-summary (or succ-oe fail-oe)) res)
+    (message "Failed to %s event '%s(id=%s)' err=%s"
+             op
+             (gcal-oevent-summary (or succ-oe fail-oe))
+             (gcal-oevent-id (or succ-oe fail-oe))
+             res)
     (if fail-oe (cons fail-oe result-events) result-events)))
 
 (defun gcal-org-push-oevents--insert (calendar-id new-oe)
@@ -809,21 +812,41 @@ base32hexへ変換します。"
 
 (defun gcal-oevent-base32hex-uuid-with-ord-p (id)
   ;; i5o7hja5ch1r14crqmp8g9mv6k00001
-  ;;;@todo check last 5 digits
-  (and (gcal-base32hex-p id) (= (length id) (+ 26 5))))
+  (and (gcal-base32hex-p id)
+       (= (length id) (+ 26 5))
+       (not (seq-some (lambda (c) (not (and (>= c ?0) (<= c ?9))))
+                      (substring id 26)))))
+
+(defun gcal-oevent-base32hex-uuid-irreversible-p (id)
+  "ID がUUIDのbase32hex表記であり、かつ、UUIDへ変換して再度base32hexに変換したときに ID に戻らないなら(不可逆なら) t を返します。Googleカレンダーで作成した予定はなぜかそのようなIDを持つことがあります。"
+  ;; ex: 08upbl98ch96ef8s14lg3f0r8v => t
+  ;; ex: 08upbl98ch96ef8s14lg3f0r8s => nil
+  (and (gcal-base32hex-p id) (= (length id) 26)
+       ;; 26文字目の5ビットの内下位2ビットが非0のとき、それをUUIDに変
+       ;; 換すると元のbase32hex表記に戻らない。
+       ;; 26文字目の下位2ビットは変換後の17バイト目の値で捨てられるので。
+       (/= 0 (logand 3 (cl-position (upcase (elt id 25)) gcal-base32hex-table)))))
 
 (defun gcal-oevent-id-ord-from-gevent-id (id)
   "Convert Google Calendar's event id to oevent's :id and :ord."
   (cond
    ;; base32hex-uuid + ord
+   ;; (ex: i5o7hja5ch1r14crqmp8g9mv6k00001) 31文字
    ((gcal-oevent-base32hex-uuid-with-ord-p id)
-    (cons
-     (gcal-uuid-from-base32hex (substring id 0 26))
-     (string-to-number (substring id 26 (+ 26 5)))))
+    (let ((b32h-id (substring id 0 26))
+          (ord (string-to-number (substring id 26 (+ 26 5)))))
+      (if (gcal-oevent-base32hex-uuid-irreversible-p b32h-id)
+          ;; 不可逆ならしかたないのでbase32hexのままにする。
+          (cons b32h-id ord) ;;(base32hex-uuid(26文字) . ord)
+        (cons (gcal-uuid-from-base32hex b32h-id) ord)))) ;;(uuid(36文字) . ord)
 
    ;; base32hex-uuid
+   ;; (ex: i5o7hja5ch1r14crqmp8g9mv6k) 26文字
    ((gcal-oevent-base32hex-uuid-p id)
-    (cons (gcal-uuid-from-base32hex id) 0))
+    (if (gcal-oevent-base32hex-uuid-irreversible-p id)
+        ;; 不可逆ならしかたないのでbase32hexのままにする。
+        (cons id 0) ;;(base32hex-uuid . 0)
+      (cons (gcal-uuid-from-base32hex id) 0))) ;;(uuid . 0)
 
    ;; unknown
    (t
