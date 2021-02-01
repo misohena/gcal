@@ -241,7 +241,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 (defcustom gcal-org-pushed-events-file
   (expand-file-name (concat user-emacs-directory ".gcal-org-pushed-events"))
   ""
-  :group 'gcal-org
+  :group 'gcal
   :type 'file)
 
 (defun gcal-org-pushed-events-save ()
@@ -602,7 +602,7 @@ old-events will be destroyed."
 (defcustom gcal-org-oevent-template
   "** %{summary}\nSCHEDULED: %{timestamp}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}:END:\n"
   "org-mode text representation of oevent."
-  :group 'gcal-org
+  :group 'gcal
   :type 'string)
 
 (defun gcal-oevent-format (oevent &optional format)
