@@ -713,6 +713,11 @@ old-events will be destroyed."
 ;; Convert between oevent(Org-mode Event) and gevent(Google Calendar Event)
 ;;
 
+(defcustom gcal-ts-prefix-created-on-google "SCHEDULED"
+  "Google Calendarにおいて作成された予定をpullしたときに付ける接頭辞。"
+  :group gcal
+  :type 'string)
+
 (defun gcal-oevent-to-gevent (oevent)
   "Convert a oevent(gcal-oevent object) to a Google Calendar event."
   (let* ((summary   (gcal-oevent-summary oevent))
@@ -755,7 +760,7 @@ old-events will be destroyed."
          (ex-prop-ord (cdr (assq 'gcalOrd ex-props)))
          (ex-prop-ts-prefix (cdr (assq 'gcalTsPrefix ex-props)))
          (created-on-google (and (null ex-prop-ord) (null ex-prop-ts-prefix)))
-         (ts-prefix (if created-on-google "SCHEDULED" ex-prop-ts-prefix))
+         (ts-prefix (if created-on-google gcal-ts-prefix-created-on-google ex-prop-ts-prefix))
          (summary-prefix (or (cdr (assq 'gcalSummaryPrefix ex-props)) "")))
     (cond
      ((not (stringp id))
