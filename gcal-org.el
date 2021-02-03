@@ -730,9 +730,12 @@ old-events will be destroyed."
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
       (extendedProperties
        . ((private
-           . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
+           ;; To remove property, set value to nil.
+           ;; https://developers.google.com/calendar/extended-properties#deleting
+           . ((gcalTsPrefix . ,ts-prefix)
               (gcalOrd . ,ord)
-              ,@(if summary-prefix `((gcalSummaryPrefix . ,summary-prefix)))))))
+              (gcalSummaryPrefix . ,(if (not (string-empty-p summary-prefix))
+                                        summary-prefix))))))
       ,@(if location `((location . ,location)))
       )))
 
