@@ -715,7 +715,7 @@ old-events will be destroyed."
 
 (defcustom gcal-ts-prefix-created-on-google "SCHEDULED"
   "Google Calendarにおいて作成された予定をpullしたときに付ける接頭辞。"
-  :group gcal
+  :group 'gcal
   :type 'string)
 
 (defun gcal-oevent-to-gevent (oevent)
