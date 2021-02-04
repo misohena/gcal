@@ -603,7 +603,7 @@ old-events will be destroyed."
 ;;
 
 (defcustom gcal-org-oevent-template
-  "** %{summary}\nSCHEDULED: %{timestamp}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}:END:\n"
+  "** %{summary}\n%{ts-prefix-colon}%{timestamp}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}:END:\n"
   "org-mode text representation of oevent."
   :group 'gcal
   :type 'string)
@@ -620,6 +620,9 @@ old-events will be destroyed."
                (cons "%{ts-start}" (gcal-oevent-ts-start oevent))
                (cons "%{ts-end}" (gcal-oevent-ts-end oevent))
                (cons "%{ts-prefix}" (gcal-oevent-ts-prefix oevent))
+               (cons "%{ts-prefix-colon}"
+                     (if-let ((ts-prefix (gcal-oevent-ts-prefix oevent)))
+                         (concat ts-prefix ": ")))
                (cons "%{location}" location)
                (cons "%{propname-location-br}"
                      (if location (format " :LOCATION: %s\n" location) "")))))
