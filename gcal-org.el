@@ -721,7 +721,7 @@ old-events will be destroyed."
   :group 'gcal
   :type 'string)
 
-(defun gcal-oevent-to-gevent (oevent)
+(defun gcal-oevent-to-gevent (oevent &optional for-patch)
   "Convert a oevent(gcal-oevent object) to a Google Calendar event."
   (let* ((summary   (gcal-oevent-summary oevent))
          (ts-prefix (gcal-oevent-ts-prefix oevent))
@@ -730,6 +730,10 @@ old-events will be destroyed."
          (location  (gcal-oevent-location oevent))
          (ord  (gcal-oevent-ord oevent))
          (summary-prefix (gcal-oevent-summary-prefix oevent)))
+
+    (if (and (stringp summary-prefix) (string-empty-p summary-prefix))
+        (setq summary-prefix nil))
+
     `((id . ,(gcal-oevent-gevent-id oevent))
       (status . "confirmed")
       (summary . ,(concat summary-prefix
@@ -740,10 +744,9 @@ old-events will be destroyed."
        . ((private
            ;; To remove property, set value to nil.
            ;; https://developers.google.com/calendar/extended-properties#deleting
-           . ((gcalTsPrefix . ,ts-prefix)
+           . (,@(if (or ts-prefix for-patch) `((gcalTsPrefix . ,ts-prefix)))
               (gcalOrd . ,ord)
-              (gcalSummaryPrefix . ,(if (not (string-empty-p summary-prefix))
-                                        summary-prefix))))))
+              ,@(if (or summary-prefix for-patch) `((gcalSummaryPrefix . summary-prefix)))))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -877,7 +880,7 @@ base32hexへ変換します。"
   (gcal-events-update calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
 
 (defun gcal-oevent-patch (calendar-id oevent)
-  (gcal-events-patch calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
+  (gcal-events-patch calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent t)))
 
 (defun gcal-oevent-delete (calendar-id oevent)
   (gcal-events-delete calendar-id (gcal-oevent-gevent-id oevent)))
