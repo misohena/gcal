@@ -746,7 +746,7 @@ old-events will be destroyed."
            ;; https://developers.google.com/calendar/extended-properties#deleting
            . (,@(if (or ts-prefix for-patch) `((gcalTsPrefix . ,ts-prefix)))
               (gcalOrd . ,ord)
-              ,@(if (or summary-prefix for-patch) `((gcalSummaryPrefix . summary-prefix)))))))
+              ,@(if (or summary-prefix for-patch) `((gcalSummaryPrefix . ,summary-prefix)))))))
       ,@(if location `((location . ,location)))
       )))
 
