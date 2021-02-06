@@ -313,7 +313,7 @@ old-events will be destroyed."
      ;; Change
      (lambda (old-oe new-oe)
        (setq result-events (gcal-org-push-oevents--check
-                            (gcal-oevent-patch calendar-id new-oe)
+                            (gcal-oevent-patch calendar-id old-oe new-oe)
                             new-oe old-oe result-events
                             "update")))
      ;; Add
@@ -711,6 +711,97 @@ old-events will be destroyed."
 
 
 
+;;
+;; Difference between gevents
+;;
+
+(defun gcal-org-diff-gevents (old-gevent new-gevent)
+  "OLD-GEVENTからNEW-GEVENTへの差分を抽出します。"
+  (gcal-org-diff-gevents--internal
+   old-gevent
+   new-gevent
+   '(id
+     status
+     summary
+     start
+     end
+     recurrence
+     location
+     (extendedProperties
+      . ((private
+          . (gcalTsPrefix
+             gcalOrd
+             gcalSummaryPrefix)))))))
+
+(defun gcal-org-diff-gevents--internal (old-gevent new-gevent properties-info)
+  (let (result)
+    (while properties-info
+      (let* ((info (car properties-info))
+             (name (if (consp info) (car info) info))
+             (children-info (if (consp info) (cdr info)))
+             (old-value (cdr (assq name old-gevent)))
+             (new-value (cdr (assq name new-gevent))))
+        (cond
+         ;; Not exists
+         ((and (null old-value) (null new-value)) )
+         ;; Added
+         ((null old-value)
+          (push (cons name new-value) result)) ;; Push new-value
+         ;; Removed
+         ((null new-value)
+          ;; To remove property, set value to nil.
+          ;; https://developers.google.com/calendar/extended-properties#deleting
+          (push (cons name nil) result)) ;; Push nil
+         ;; Not Changed
+         ((equal old-value new-value) )
+         ;; Changed
+         (t
+          (if children-info
+              ;; Push differences of child properties
+              (push (cons name (gcal-org-diff-gevents--internal
+                                old-value
+                                new-value
+                                children-info))
+                    result)
+            ;; Push new-value
+            (push (cons name new-value) result)))))
+
+      (setq properties-info (cdr properties-info)))
+    (nreverse result)))
+
+;; TEST:
+;; (gcal-org-diff-gevents
+;;  '((id . "7klp090f7m3isa1k725g6r23nh")
+;;   (status . "confirmed")
+;;   (summary . "TestFromGcal1")
+;;   (start (date . "2021-02-08") (dateTime) (timeZone . "Asia/Tokyo"))
+;;   (end (date . "2021-02-09") (dateTime) (timeZone . "Asia/Tokyo"))
+;;   (recurrence . ["RRULE:FREQ=WEEKLY;BYDAY=MO"])
+;;   (extendedProperties (private (gcalTsPrefix . "SCHEDULED") (gcalOrd . 0) (gcalSummaryPrefix "hoge")))
+;;   )
+;;  '((id . "7klp090f7m3isa1k725g6r23nh")
+;;   (status . "confirmed")
+;;   (summary . "TestFromGcal2")
+;;   (start (date . "2021-02-10") (dateTime) (timeZone . "Asia/Tokyo"))
+;;   (end (date . "2021-02-11") (dateTime) (timeZone . "Asia/Tokyo"))
+;;   (location . "Tokyo")
+;;   (extendedProperties (private (gcalTsPrefix . "SCHEDULED") (gcalOrd . 0) ))
+;;   )
+;; =>
+;; ((summary . "TestFromGcal2")
+;;  (start
+;;   (date . "2021-02-10")
+;;   (dateTime)
+;;   (timeZone . "Asia/Tokyo"))
+;;  (end
+;;   (date . "2021-02-11")
+;;   (dateTime)
+;;   (timeZone . "Asia/Tokyo"))
+;;  (recurrence)
+;;  (location . "Tokyo")
+;;  (extendedProperties
+;;   (private
+;;    (gcalSummaryPrefix))))
 
 ;;
 ;; Convert between oevent(Org-mode Event) and gevent(Google Calendar Event)
@@ -721,7 +812,7 @@ old-events will be destroyed."
   :group 'gcal
   :type 'string)
 
-(defun gcal-oevent-to-gevent (oevent &optional for-patch)
+(defun gcal-oevent-to-gevent (oevent)
   "Convert a oevent(gcal-oevent object) to a Google Calendar event."
   (let* ((summary   (gcal-oevent-summary oevent))
          (ts-prefix (gcal-oevent-ts-prefix oevent))
@@ -742,11 +833,9 @@ old-events will be destroyed."
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
       (extendedProperties
        . ((private
-           ;; To remove property, set value to nil.
-           ;; https://developers.google.com/calendar/extended-properties#deleting
-           . (,@(if (or ts-prefix for-patch) `((gcalTsPrefix . ,ts-prefix)))
+           . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
               (gcalOrd . ,ord)
-              ,@(if (or summary-prefix for-patch) `((gcalSummaryPrefix . ,summary-prefix)))))))
+              ,@(if summary-prefix `((gcalSummaryPrefix . ,summary-prefix)))))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -879,8 +968,16 @@ base32hexへ変換します。"
 (defun gcal-oevent-update (calendar-id oevent)
   (gcal-events-update calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
 
-(defun gcal-oevent-patch (calendar-id oevent)
-  (gcal-events-patch calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent t)))
+(defun gcal-oevent-patch (calendar-id old-oevent new-oevent)
+  (if-let ((delta-oevent (gcal-org-diff-gevents
+                          (gcal-oevent-to-gevent old-oevent)
+                          (gcal-oevent-to-gevent new-oevent))))
+      (gcal-events-patch
+       calendar-id
+       (gcal-oevent-gevent-id new-oevent)
+       delta-oevent)
+    ;; No differences (gcal-succeeded-p nil)=>t
+    nil))
 
 (defun gcal-oevent-delete (calendar-id oevent)
   (gcal-events-delete calendar-id (gcal-oevent-gevent-id oevent)))
