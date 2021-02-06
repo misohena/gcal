@@ -39,7 +39,8 @@
 
 (defun make-gcal-oevent (&rest args)
   (let (result
-        (opt-props '(:location)))
+        (opt-props '(:recurrence
+                     :location)))
     ;; optionalでnilなプロパティを削除する。
     ;; 変化判定に影響を及ぼさないようにするため。
     (while args
@@ -54,6 +55,7 @@
 (defun gcal-oevent-ts-prefix (oevent) (plist-get oevent :ts-prefix))
 (defun gcal-oevent-ts-start (oevent) (plist-get oevent :ts-start))
 (defun gcal-oevent-ts-end (oevent) (plist-get oevent :ts-end))
+(defun gcal-oevent-recurrence (oevent) (plist-get oevent :recurrence))
 (defun gcal-oevent-location (oevent) (plist-get oevent :location))
 (defun gcal-oevent-summary-prefix (oevent) (plist-get oevent :summary-prefix))
 
@@ -143,6 +145,9 @@
                             (plist-get ts :day-end)
                             (plist-get ts :hour-end)
                             (plist-get ts :minute-end)))
+               (recurrence  (or (gcal-org-make-recurrence ts)
+                                (if-let ((value (org-entry-get (point) "GCAL-RECURRENCE")))
+                                    (read value) )))
                (same-entry-info  (assoc id entries))
                (same-entry-count (length (nth 1 same-entry-info)))
                (summary-prefix (gcal-org-parse-buffer--make-summary-prefix
@@ -154,6 +159,7 @@
                              :ts-prefix ts-prefix
                              :ts-start ts-start
                              :ts-end ts-end
+                             :recurrence recurrence
                              :location location
                              :summary-prefix summary-prefix))
                )
@@ -199,7 +205,20 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
                     0)
                   path))))
 
-
+(defun gcal-org-make-recurrence (ts)
+  (if-let ((repeater-type (plist-get ts :repeater-type))
+           (repeater-unit (plist-get ts :repeater-unit))
+           (repeater-value (plist-get ts :repeater-value))
+           (repeater-unit-str (cdr (assq
+                                    repeater-unit
+                                    '((hour . "HOURLY")
+                                      (day . "DAILY")
+                                      (week . "WEEKLY")
+                                      (month . "MONTHLY")
+                                      (year . "YEARLY"))))))
+      (vector
+       ;; https://tools.ietf.org/html/rfc5545#section-3.8.5
+       (format "RRULE:FREQ=%s;INTERVAL=%s" repeater-unit-str repeater-value))))
 
 ;;
 ;; Push org file to Google Calendar
@@ -491,13 +510,14 @@ old-events will be destroyed."
            ;; ts-prefixがあるなら、それが指すタイムスタンプを変更する。
            (gcal-org-pull-merge-property
             (format "timestamp (%s)" new-ts-prefix)
-            (cons (gcal-oevent-ts-start old-oe) (gcal-oevent-ts-end old-oe)) ;;old-value
-            (cons (gcal-oevent-ts-start new-oe) (gcal-oevent-ts-end new-oe)) ;;new-value
+            (list (gcal-oevent-ts-start old-oe) (gcal-oevent-ts-end old-oe) (gcal-oevent-recurrence old-oe)) ;;old-value
+            (list (gcal-oevent-ts-start new-oe) (gcal-oevent-ts-end new-oe) (gcal-oevent-recurrence new-oe)) ;;new-value
             (gcal-org-get-schedule-ts-range new-ts-prefix) ;;cur-value
             (lambda (value) (gcal-org-set-schedule-ts-range value new-ts-prefix))
             (lambda (value)
-              (setq old-oe (plist-put old-oe :ts-start (car value)))
-              (setq old-oe (plist-put old-oe :ts-end (cdr value)))))
+              (setq old-oe (plist-put old-oe :ts-start (nth 0 value)))
+              (setq old-oe (plist-put old-oe :ts-end (nth 1 value)))
+              (setq old-oe (plist-put old-oe :recurrence (nth 2 value)))))
          ;; @todo :ord番目のタイムスタンプを変更する。
          ))
      old-oe)
@@ -569,13 +589,16 @@ old-events will be destroyed."
                       (plist-get elem :month-end)
                       (plist-get elem :day-end)
                       (plist-get elem :hour-end)
-                      (plist-get elem :minute-end))))
+                      (plist-get elem :minute-end)))
+         (recurrence (gcal-org-make-recurrence elem)))
     (if elem
-        (cons ts-start ts-end))))
+        (list ts-start ts-end recurrence))))
 
 (defun gcal-org-set-schedule-ts-range (ts-range &optional keyword)
   "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値から設定します。"
-  (let ((ts-text (gcal-ts-format-org-range (car ts-range) (cdr ts-range))))
+  (let ((ts-text (gcal-ts-format-org-range (nth 0 ts-range)
+                                           (nth 1 ts-range)
+                                           (nth 2 ts-range))))
     (save-excursion
       (org-back-to-heading t)
       (forward-line)
@@ -613,7 +636,7 @@ old-events will be destroyed."
 ;;
 
 (defcustom gcal-org-oevent-template
-  "** %{summary}\n%{ts-prefix-colon}%{timestamp}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}:END:\n"
+  "** %{summary}\n%{ts-prefix-colon}%{timestamp}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}%{prop-recurrence-unsupported-br}:END:\n"
   "org-mode text representation of oevent."
   :group 'gcal
   :type 'string)
@@ -624,7 +647,8 @@ old-events will be destroyed."
                (cons "%{summary}" (gcal-oevent-summary oevent))
                (cons "%{timestamp}" (gcal-ts-format-org-range
                                      (gcal-oevent-ts-start oevent)
-                                     (gcal-oevent-ts-end oevent)))
+                                     (gcal-oevent-ts-end oevent)
+                                     (gcal-oevent-recurrence oevent)))
                (cons "%{id}" (gcal-oevent-id oevent))
                (cons "%{ord}" (gcal-oevent-ord oevent))
                (cons "%{ts-start}" (gcal-oevent-ts-start oevent))
@@ -635,7 +659,10 @@ old-events will be destroyed."
                          (concat ts-prefix ": ")))
                (cons "%{location}" location)
                (cons "%{propname-location-br}"
-                     (if location (format " :LOCATION: %s\n" location) "")))))
+                     (if location (format " :LOCATION: %s\n" location) ""))
+               (cons "%{prop-recurrence-unsupported-br}"
+                     (if (not (gcal-ts-supported-recurrence-p (gcal-oevent-recurrence oevent)))
+                         (format " :GCAL-RECURRENCE: %s\n" (prin1-to-string (gcal-oevent-recurrence oevent))))))))
 
     (replace-regexp-in-string
      "%{[^}]+}"
@@ -828,6 +855,7 @@ old-events will be destroyed."
          (ts-prefix (gcal-oevent-ts-prefix oevent))
          (ts-start  (gcal-oevent-ts-start oevent))
          (ts-end    (gcal-oevent-ts-end oevent))
+         (recurrence (gcal-oevent-recurrence oevent))
          (location  (gcal-oevent-location oevent))
          (ord  (gcal-oevent-ord oevent))
          (summary-prefix (gcal-oevent-summary-prefix oevent)))
@@ -841,6 +869,7 @@ old-events will be destroyed."
                           summary))
       (start . ,(gcal-ts-to-gtime ts-start))
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
+      ,@(if recurrence `((recurrence . ,recurrence)))
       (extendedProperties
        . ((private
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
@@ -860,6 +889,7 @@ old-events will be destroyed."
          (end   (cdr (assq 'end gevent)))
          (ts-start (if start (gcal-ts-from-gtime start)))
          (ts-end   (if start (gcal-ts-from-gtime end)))
+         (recurrence (cdr (assq 'recurrence gevent)))
          ;;(created (cdr (assq 'created gevent)))
          ;;(updated (cdr (assq 'updated gevent)))
          (summary (cdr (assq 'summary gevent)))
@@ -884,6 +914,7 @@ old-events will be destroyed."
        :ts-prefix ts-prefix
        :ts-start ts-start
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
+       :recurrence recurrence
        :location location
        :summary-prefix summary-prefix
        )))))
@@ -1090,23 +1121,76 @@ base32hexへ変換します。"
    (org-time-stamp-format (not (gcal-ts-date-only ts)) nil)
    (gcal-ts-to-time ts)))
 
-(defun gcal-ts-format-org-range (ts-start ts-end)
-  (cond
-   ;; <2016-05-28 Sat> or <2016-05-28 Sat 12:34>
-   ((equal ts-start ts-end)
-    (gcal-ts-format-org ts-start))
-   ;; <2016-05-28 Sat 01:23-12:34>
-   ((and (not (gcal-ts-date-only ts-start))
-         (gcal-ts-equal-date ts-start ts-end))
-    (concat
-     (substring (gcal-ts-format-org ts-start) 0 -1)
-     (format-time-string "-%H:%M>" (gcal-ts-to-time ts-end))))
-   ;; <2016-05-28 Sat ??:??>--<2016-05-29 Sun ??:??>
-   (t
-    (concat
-     (gcal-ts-format-org ts-start)
-     "--"
-     (gcal-ts-format-org ts-end)))))
+(defun gcal-ts-format-org-range (ts-start ts-end recurrence)
+  (gcal-ts-append-repeater
+   (cond
+    ;; <2016-05-28 Sat> or <2016-05-28 Sat 12:34>
+    ((equal ts-start ts-end)
+     (gcal-ts-format-org ts-start))
+    ;; <2016-05-28 Sat 01:23-12:34>
+    ((and (not (gcal-ts-date-only ts-start))
+          (gcal-ts-equal-date ts-start ts-end))
+     (concat
+      (substring (gcal-ts-format-org ts-start) 0 -1)
+      (format-time-string "-%H:%M>" (gcal-ts-to-time ts-end))))
+    ;; <2016-05-28 Sat ??:??>--<2016-05-29 Sun ??:??>
+    (t
+     (concat
+      (gcal-ts-format-org ts-start)
+      "--"
+      (gcal-ts-format-org ts-end))))
+   recurrence))
+
+(defun gcal-ts-append-repeater (ts-str recurrence)
+  "タイムスタンプ文字列TS-STRにRECURRENCEから生成したリピーターを付加したものを返します。"
+  (if recurrence
+      (if-let ((repeater (gcal-ts-repeater-from-recurrence recurrence)))
+          (concat
+           (substring ts-str 0 -1)
+           repeater
+           (substring ts-str -1))
+        ;;Unsupported recurrence
+        ts-str)
+    ts-str))
+
+(defun gcal-ts-repeater-from-recurrence (recurrence)
+  "RECURRENCEをタイムスタンプのリピーター部分に変換します。変換できない場合(RECURRENCEがnil、対応していない指定等)の場合はnilを返します。"
+  (if (and (sequencep recurrence) (= (length recurrence) 1))
+      (let ((str (elt recurrence 0)))
+        ;;@todo 同じ意味になる様々な表記に対応する。少なくともGoolgeカレンダーで指定が出来てorg-modeのタイムスタンプで対応できる表記は網羅したい。
+        ;; - 毎日 "RRULE:FREQ=DAILY" ← OK
+        ;; - 毎週月曜日 "RRULE:FREQ=WEEKLY;BYDAY=MO" ←日付が月曜なら +1wにしたい
+        ;; - 毎月 "RRULE:FREQ=MONTHLY" ← OK
+        ;; - 毎年 "RRULE:FREQ=YEARLY" ← OK
+        ;; - 2日おき "RRULE:FREQ=DAILY;INTERVAL=2" ← OK
+        ;; - 毎月第1火曜日 "RRULE:FREQ=MONTHLY;BYDAY=1TU" ←無理
+        ;; - 毎月第1火曜日(終了日指定あり) "RRULE:FREQ=MONTHLY;UNTIL=20210405T145959Z;BYDAY=1TU" ←無理
+        ;; - 毎週月～金 "RRULE:FREQ=WEEKLY;WKST=SU;BYDAY=FR,MO,TH,TU,WE" ←無理
+        (if (and (stringp str)
+                 (string-match
+                  "\\`RRULE:FREQ=\\([A-Z]+\\)\\(;INTERVAL=\\([0-9]+\\)\\)?\\'"
+                  str))
+            (let ((freq (match-string 1 str))
+                  (interval (match-string 3 str)))
+              (if-let ((repeater-suffix
+                        (cdr
+                         ;; "SECONDLY" "MINUTELY" are not supported
+                         (assoc freq '(("HOURLY" . "h")
+                                       ("DAILY" . "d")
+                                       ("WEEKLY" . "w")
+                                       ("MONTHLY" . "m")
+                                       ("YEARLY" . "y"))))))
+
+                  (concat " +" (or interval "1") repeater-suffix)))))))
+;;(gcal-ts-repeater-from-recurrence ["RRULE:FREQ=DAILY;INTERVAL=2"]) => " +2d"
+
+(defun gcal-ts-supported-recurrence-p (recurrence)
+  "RECURRENCEが対応している(org-modeのタイムスタンプで表現できる)指定ならtを返します。
+
+RECURRENCEがnilの場合、リピーターがないタイムスタンプで表現できるのでtを返します。"
+  (if recurrence
+      (not (null (gcal-ts-repeater-from-recurrence recurrence)))
+    t))
 
 
 (provide 'gcal-org)
