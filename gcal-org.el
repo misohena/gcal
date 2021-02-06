@@ -1010,13 +1010,13 @@ base32hexへ変換します。"
   (gcal-events-update calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
 
 (defun gcal-oevent-patch (calendar-id old-oevent new-oevent)
-  (if-let ((delta-oevent (gcal-org-diff-gevents
+  (if-let ((delta-gevent (gcal-org-diff-gevents
                           (gcal-oevent-to-gevent old-oevent)
                           (gcal-oevent-to-gevent new-oevent))))
       (gcal-events-patch
        calendar-id
        (gcal-oevent-gevent-id new-oevent)
-       delta-oevent)
+       delta-gevent)
     ;; No differences (gcal-succeeded-p nil)=>t
     nil))
 
