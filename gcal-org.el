@@ -37,7 +37,17 @@
 ;; gcal-oevent object
 ;;
 
-(defun make-gcal-oevent (&rest args) args)
+(defun make-gcal-oevent (&rest args)
+  (let (result
+        (opt-props '(:location)))
+    ;; optionalでnilなプロパティを削除する。
+    ;; 変化判定に影響を及ぼさないようにするため。
+    (while args
+      (when (or (not (memq (car args) opt-props)) (cadr args))
+        (push (car args) result)
+        (push (cadr args) result))
+      (setq args (cddr args)))
+    (nreverse result)))
 (defun gcal-oevent-id (oevent) (plist-get oevent :id))
 (defun gcal-oevent-ord (oevent) (plist-get oevent :ord))
 (defun gcal-oevent-summary (oevent) (plist-get oevent :summary))
