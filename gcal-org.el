@@ -150,9 +150,7 @@
                             (plist-get ts :day-end)
                             (plist-get ts :hour-end)
                             (plist-get ts :minute-end)))
-               (recurrence  (or (gcal-org-make-recurrence ts)
-                                (if-let ((value (org-entry-get (point) "GCAL-RECURRENCE")))
-                                    (read value) )))
+               (recurrence  (gcal-org-make-recurrence ts))
                (same-entry-info  (assoc id entries))
                (same-entry-count (length (nth 1 same-entry-info)))
                (summary-prefix (gcal-org-parse-buffer--make-summary-prefix
@@ -223,7 +221,11 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
                                       (year . "YEARLY"))))))
       (vector
        ;; https://tools.ietf.org/html/rfc5545#section-3.8.5
-       (format "RRULE:FREQ=%s;INTERVAL=%s" repeater-unit-str repeater-value))))
+       (format "RRULE:FREQ=%s;INTERVAL=%s" repeater-unit-str repeater-value))
+
+    ;; Get from entry's property
+    (if-let ((value (org-entry-get (point) "GCAL-RECURRENCE")))
+        (read value))))
 
 ;;
 ;; Push org file to Google Calendar
@@ -518,7 +520,12 @@ old-events will be destroyed."
             (list (gcal-oevent-ts-start old-oe) (gcal-oevent-ts-end old-oe) (gcal-oevent-recurrence old-oe)) ;;old-value
             (list (gcal-oevent-ts-start new-oe) (gcal-oevent-ts-end new-oe) (gcal-oevent-recurrence new-oe)) ;;new-value
             (gcal-org-get-schedule-ts-range new-ts-prefix) ;;cur-value
-            (lambda (value) (gcal-org-set-schedule-ts-range value new-ts-prefix))
+            (lambda (value)
+              (gcal-org-set-schedule-ts-range value new-ts-prefix)
+              (let ((recurrence (nth 2 value)))
+                (if (gcal-ts-supported-recurrence-p recurrence)
+                    (org-delete-property "GCAL-RECURRENCE")
+                  (org-set-property "GCAL-RECURRENCE" (prin1-to-string recurrence)))))
             (lambda (value)
               (setq old-oe (gcal-oevent-set-property old-oe :ts-start (nth 0 value)))
               (setq old-oe (gcal-oevent-set-property old-oe :ts-end (nth 1 value)))
