@@ -44,11 +44,9 @@
     ;; optionalでnilなプロパティを削除する。
     ;; 変化判定に影響を及ぼさないようにするため。
     (while args
-      (when (or (not (memq (car args) opt-props)) (cadr args))
-        (push (car args) result)
-        (push (cadr args) result))
+      (setq result (gcal-oevent-set-property result (car args) (cadr args)))
       (setq args (cddr args)))
-    (nreverse result)))
+    result))
 (defun gcal-oevent-id (oevent) (plist-get oevent :id))
 (defun gcal-oevent-ord (oevent) (plist-get oevent :ord))
 (defun gcal-oevent-summary (oevent) (plist-get oevent :summary))
@@ -58,6 +56,13 @@
 (defun gcal-oevent-recurrence (oevent) (plist-get oevent :recurrence))
 (defun gcal-oevent-location (oevent) (plist-get oevent :location))
 (defun gcal-oevent-summary-prefix (oevent) (plist-get oevent :summary-prefix))
+
+(defun gcal-oevent-set-property (oevent prop value)
+  (let ((opt-props '(:recurrence
+                     :location)))
+    (if (and (null value) (memq prop opt-props))
+        (org-plist-delete oevent prop)
+      (plist-put oevent prop value))))
 
 (defcustom gcal-org-allowed-timestamp-prefix '(nil "SCHEDULED" "DEADLINE")
   "パースする際にイベントとみなされるタイムスタンプの接頭辞を持ちます。
@@ -495,7 +500,7 @@ old-events will be destroyed."
       (gcal-oevent-summary new-oe) ;;new-value
       (substring-no-properties (org-get-heading t t)) ;;curr-value
       (lambda (value) (gcal-org-set-heading-text value)) ;;update org
-      (lambda (value) (setq old-oe (plist-put old-oe :summary value)))) ;;update object
+      (lambda (value) (setq old-oe (gcal-oevent-set-property old-oe :summary value)))) ;;update object
      ;; location
      (gcal-org-pull-merge-property
       "location"
@@ -503,7 +508,7 @@ old-events will be destroyed."
       (gcal-oevent-location new-oe) ;;new-value
       (org-entry-get (point) "LOCATION") ;;curr-value
       (lambda (value) (org-set-property "LOCATION" value)) ;;update org
-      (lambda (value) (setq old-oe (plist-put old-oe :location value)))) ;;update object
+      (lambda (value) (setq old-oe (gcal-oevent-set-property old-oe :location value)))) ;;update object
      ;; ts
      (let ((new-ts-prefix (gcal-oevent-ts-prefix new-oe)))
        (if (stringp new-ts-prefix)
@@ -515,9 +520,9 @@ old-events will be destroyed."
             (gcal-org-get-schedule-ts-range new-ts-prefix) ;;cur-value
             (lambda (value) (gcal-org-set-schedule-ts-range value new-ts-prefix))
             (lambda (value)
-              (setq old-oe (plist-put old-oe :ts-start (nth 0 value)))
-              (setq old-oe (plist-put old-oe :ts-end (nth 1 value)))
-              (setq old-oe (plist-put old-oe :recurrence (nth 2 value)))))
+              (setq old-oe (gcal-oevent-set-property old-oe :ts-start (nth 0 value)))
+              (setq old-oe (gcal-oevent-set-property old-oe :ts-end (nth 1 value)))
+              (setq old-oe (gcal-oevent-set-property old-oe :recurrence (nth 2 value)))))
          ;; @todo :ord番目のタイムスタンプを変更する。
          ))
      old-oe)
