@@ -430,6 +430,17 @@ Example:
 ;;   (ex: 2016-05-01T12:34:00+09:00)
 ;;
 
+(defcustom gcal-time-zone-name-default nil
+  "デフォルトのタイムゾーン名です。
+
+IANA Time Zone Database nameで指定します(例:Asia/Tokyo)。
+
+単発のイベントのみ使う場合は省略可能ですが、繰り返しイベントに時刻を含めたいときは必須です。"
+  :group 'gcal :type '(choice (const nil) string))
+
+(defun gcal-time-zone-name-default ()
+  gcal-time-zone-name-default)
+
 (defun gcal-time-zone-suffix ()
   (let ((tz (format-time-string "%z")))
     (concat (substring tz 0 3) ":" (substring tz 3))))
@@ -444,13 +455,16 @@ Example:
   (encode-time 0 (or mm 0) (or hh 0) d m y))
 
 (defun gcal-time-to-gtime (time date-only)
-  (list
-   (cons
-    (if date-only 'date 'dateTime)
-    (gcal-time-format time date-only))
-   (cons
-    (if date-only 'dateTime 'date)
-    nil)))
+  (append
+   (list
+    (cons
+     (if date-only 'date 'dateTime)
+     (gcal-time-format time date-only))
+    (cons
+     (if date-only 'dateTime 'date)
+     nil))
+   (if-let ((name (gcal-time-zone-name-default)))
+       (list (cons 'timeZone name)))))
 
 
 (defun gcal-gtime (y m d &optional hh mm)
