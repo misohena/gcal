@@ -221,9 +221,8 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
        ;; https://tools.ietf.org/html/rfc5545#section-3.8.5
        (format "RRULE:FREQ=%s;INTERVAL=%s" repeater-unit-str repeater-value))
 
-    ;; Get from entry's property
-    (if-let ((value (org-entry-get (point) "GCAL-RECURRENCE")))
-        (read value))))
+    ;; Get from addtional properties
+    (gcal-ts-get-additional-property ts :recurrence)))
 
 ;;
 ;; Push org file to Google Calendar
@@ -519,11 +518,7 @@ old-events will be destroyed."
             (list (gcal-oevent-ts-start new-oe) (gcal-oevent-ts-end new-oe) (gcal-oevent-recurrence new-oe)) ;;new-value
             (gcal-org-get-schedule-ts-range new-ts-prefix) ;;cur-value
             (lambda (value)
-              (gcal-org-set-schedule-ts-range value new-ts-prefix)
-              (let ((recurrence (nth 2 value)))
-                (if (gcal-ts-supported-recurrence-p recurrence)
-                    (org-delete-property "GCAL-RECURRENCE")
-                  (org-set-property "GCAL-RECURRENCE" (prin1-to-string recurrence)))))
+              (gcal-org-set-schedule-ts-range value new-ts-prefix))
             (lambda (value)
               (setq old-oe (gcal-oevent-set-property old-oe :ts-start (nth 0 value)))
               (setq old-oe (gcal-oevent-set-property old-oe :ts-end (nth 1 value)))
@@ -606,9 +601,11 @@ old-events will be destroyed."
 
 (defun gcal-org-set-schedule-ts-range (ts-range &optional keyword)
   "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値から設定します。"
-  (let ((ts-text (gcal-ts-format-org-range (nth 0 ts-range)
-                                           (nth 1 ts-range)
-                                           (nth 2 ts-range))))
+  (let* ((recurrence (nth 2 ts-range))
+         (ts-text (gcal-ts-format-org-range (nth 0 ts-range)
+                                            (nth 1 ts-range)
+                                            recurrence))
+         ts-end)
     (save-excursion
       (org-back-to-heading t)
       (forward-line)
@@ -617,26 +614,42 @@ old-events will be destroyed."
               (let ((elem (cadr (org-element-timestamp-parser))))
                 (if elem
                     (progn
-                      (delete-region
-                       (plist-get elem :begin)
-                       (plist-get elem :end))
+                      (let ((begin (plist-get elem :begin))
+                            (end (plist-get elem :end)))
+                        ;; keep trailing spaces
+                        (while (and (> end begin)
+                                    (member (buffer-substring-no-properties (1- end) end) '(" " "\t")))
+                          (setq end (1- end)))
+                        (delete-region begin end))
                       (insert ts-text))
-                  (insert ts-text)))
+                  (insert ts-text))
+                (setq ts-end (point)))
             (cond
              ((string= keyword "CLOSED")
               (re-search-forward " *" (line-end-position) t)
-              (insert " CLOSED: " ts-text " "))
+              (insert " CLOSED: " ts-text))
              ((string= keyword "DEADLINE")
               (if (re-search-forward "\\<SCHEDULED: *" (line-end-position) t)
                   (progn
                     (goto-char (match-beginning 0))
-                    (insert "DEADLINE: " ts-text " "))
+                    (insert "DEADLINE: " ts-text))
                 (end-of-line)
-                (insert " DEADLINE: " ts-text " ")))
+                (insert " DEADLINE: " ts-text)))
              ((string= keyword "SCHEDULED")
               (end-of-line)
-              (insert " SCHEDULED: " ts-text " "))))
-        (insert " " keyword ": " ts-text "\n")))))
+              (insert " SCHEDULED: " ts-text)))
+            (setq ts-end (point))
+            (insert " "))
+        ;; Add new planning line
+        (insert " " keyword ": " ts-text)
+        (setq ts-end (point))
+        (insert "\n"))
+
+      ;; Insert recurrence after timestamp if recurrence is unsupported
+      (if (gcal-ts-supported-recurrence-p recurrence)
+          (gcal-ts-delete-additional-property ts-end :recurrence)
+        (gcal-ts-set-additional-property ts-end :recurrence recurrence))
+      )))
 
 
 
@@ -646,7 +659,7 @@ old-events will be destroyed."
 ;;
 
 (defcustom gcal-org-oevent-template
-  "** %{summary}\n%{ts-prefix-colon}%{timestamp}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}%{prop-recurrence-unsupported-br}:END:\n"
+  "** %{summary}\n%{ts-prefix-colon}%{timestamp}%{unsupported-recurrence}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}:END:\n"
   "org-mode text representation of oevent."
   :group 'gcal
   :type 'string)
@@ -659,6 +672,9 @@ old-events will be destroyed."
                                      (gcal-oevent-ts-start oevent)
                                      (gcal-oevent-ts-end oevent)
                                      (gcal-oevent-recurrence oevent)))
+               (cons "%{unsupported-recurrence}"
+                     (if (not (gcal-ts-supported-recurrence-p (gcal-oevent-recurrence oevent)))
+                         (concat "#(:recurrence " (prin1-to-string (gcal-oevent-recurrence oevent)) ")")))
                (cons "%{id}" (gcal-oevent-id oevent))
                (cons "%{ord}" (gcal-oevent-ord oevent))
                (cons "%{ts-start}" (gcal-oevent-ts-start oevent))
@@ -669,10 +685,7 @@ old-events will be destroyed."
                          (concat ts-prefix ": ")))
                (cons "%{location}" location)
                (cons "%{propname-location-br}"
-                     (if location (format " :LOCATION: %s\n" location) ""))
-               (cons "%{prop-recurrence-unsupported-br}"
-                     (if (not (gcal-ts-supported-recurrence-p (gcal-oevent-recurrence oevent)))
-                         (format " :GCAL-RECURRENCE: %s\n" (prin1-to-string (gcal-oevent-recurrence oevent))))))))
+                     (if location (format " :LOCATION: %s\n" location) "")))))
 
     (replace-regexp-in-string
      "%{[^}]+}"
@@ -1202,6 +1215,75 @@ RECURRENCEがnilの場合、リピーターがないタイムスタンプで表�
       (not (null (gcal-ts-repeater-from-recurrence recurrence)))
     t))
 
+;;
+;; Timestamp Additional Properties
+;;
+;; e.g. <2021-02-07 Sun>#(:recurrence ["RRULE:FREQ=WEEKLY;WKST=SU;BYDAY=FR,MO"])
+;;
+
+(defun gcal-ts-get-additional-properties-range (ts-end)
+  "TS-ENDの直後にある#(で始まるリストとその範囲を返します。
+(object begin end)のリストを返します。"
+  (save-excursion
+    (if (integerp ts-end)
+        (goto-char ts-end))
+    (when (string= (buffer-substring-no-properties (point) (+ (point) 2))
+                   "#(")
+      (goto-char (1+ (point)))
+      (save-restriction
+        (if (eq major-mode 'org-mode)
+            (org-narrow-to-subtree))
+        (ignore-errors
+          (let ((begin (point))
+                (object (read (current-buffer)))
+                (end (point)))
+            (list object begin end)))))))
+
+(defun gcal-ts-get-additional-properties (ts)
+  "タイムスタンプ直後にある#(で始まるリストを返します。"
+  (car
+   (gcal-ts-get-additional-properties-range
+    (plist-get ts :end))))
+
+(defun gcal-ts-get-additional-property (ts key)
+  "タイムスタンプ直後にある#(で始まるリストからプロパティを取得します。"
+  (plist-get (gcal-ts-get-additional-properties ts) key))
+
+(defun gcal-ts-set-additional-property (ts-end key value)
+  "TS-ENDの直後にある#(で始まるリストにプロパティを設定します。"
+  (let* ((plist-range (gcal-ts-get-additional-properties-range ts-end))
+         (plist (car plist-range))
+         (begin (cadr plist-range))
+         (end (caddr plist-range)))
+    (setq plist (plist-put plist key value))
+    ;; Replace
+    (save-excursion
+      (if (and begin end)
+          ;; Delete existing region
+          (progn
+            (delete-region begin end)
+            (goto-char begin))
+        ;; Add new #
+        (goto-char ts-end)
+        (insert "#"))
+      ;; Insert object
+      (insert (prin1-to-string plist)))))
+
+(defun gcal-ts-delete-additional-property (ts-end key)
+  "TS-END直後にある#(で始まるリストからプロパティを削除します。"
+  (if-let ((plist-range (gcal-ts-get-additional-properties-range ts-end)))
+      (let ((plist (car plist-range))
+            (begin (cadr plist-range))
+            (end (caddr plist-range)))
+        (setq plist (org-plist-delete plist key))
+        (if (null plist)
+            ;; Delete #( to )
+            (delete-region (1- begin) end)
+          ;; Replace
+          (delete-region begin end)
+          (save-excursion
+            (goto-char begin)
+            (insert (prin1-to-string plist)))))))
 
 (provide 'gcal-org)
 ;;; gcal-org.el ends here
