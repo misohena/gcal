@@ -38,9 +38,7 @@
 ;;
 
 (defun make-gcal-oevent (&rest args)
-  (let (result
-        (opt-props '(:recurrence
-                     :location)))
+  (let (result)
     ;; optionalでnilなプロパティを削除する。
     ;; 変化判定に影響を及ぼさないようにするため。
     (while args
