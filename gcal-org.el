@@ -1227,7 +1227,8 @@ RECURRENCEがnilの場合、リピーターがないタイムスタンプで表�
   (save-excursion
     (if (integerp ts-end)
         (goto-char ts-end))
-    (when (string= (buffer-substring-no-properties (point) (+ (point) 2))
+    (when (string= (buffer-substring-no-properties (point)
+                                                   (min (+ (point) 2) (point-max)))
                    "#(")
       (goto-char (1+ (point)))
       (save-restriction
