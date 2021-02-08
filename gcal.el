@@ -3,7 +3,10 @@
 ;; Copyright (C) 2016  AKIYAMA Kouhei
 
 ;; Author: AKIYAMA Kouhei <misohena@gmail.com>
-;; Keywords: 
+;; Version: 0.9.0
+;; Keywords: convenience
+;; Package-Requires: ((emacs "26.3"))
+;; URL: https://github.com/misohena/gcal
 
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
