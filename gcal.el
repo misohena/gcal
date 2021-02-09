@@ -100,8 +100,7 @@
           ;;(push (cons ":Body" body) headers)
           ;;(push (cons ":Status" status) headers)
           ;;(push (cons ":Message" message) headers)
-          (list status message headers body)
-          ))))
+          (list status message headers body)))))
 
 (defun gcal-http-get (url params)
   "Send GET request to url with params as query parameter."
@@ -118,7 +117,6 @@
   (gcal-http (or method "POST") url params
              '(("Content-Type" . "application/json"))
              (encode-coding-string (json-encode json-obj) 'utf-8)))
-
 
 (defun gcal-retrieve-json (method url params &optional headers data)
   "Send HTTP request and return parsed JSON object."
@@ -137,7 +135,6 @@ parsed JSON object."
   "Send HTTP POST request(with encoded JSON string) and return
 parsed JSON object."
   (gcal-http-response-to-json (gcal-http-post-json url params json-obj method)))
-
 
 (defun gcal-http-response-to-json (response)
   "Convert HTTP response(return value of gcal-http,
@@ -165,8 +162,7 @@ json-read-from-string)."
            "="
            (url-hexify-string (format "%s" value))))
         values
-        "&")
-     ))
+        "&")))
    params
    "&"))
 
@@ -174,8 +170,6 @@ json-read-from-string)."
   "Build url with query string. (ex:http://example.com/?a=1&b=2&c=3)"
   (let* ((query (gcal-http-make-query params)))
     (if (> (length query) 0) (concat url "?" query) url)))
-
-
 
 ;;
 ;; OAuth
@@ -242,9 +236,7 @@ json-read-from-string)."
       (setf (gcal-oauth-token-expires token) expires)))
   token)
 
-
-
-   ;; implementation details
+;; implementation details
 (defun gcal-oauth-get-access-token (auth-url token-url client-id client-secret scope)
   "アクセストークンを取得します。JSONをリストへ変換したもので返します。"
   (gcal-retrieve-json-post-www-form
@@ -290,8 +282,6 @@ json-read-from-string)."
           (insert-file-contents file)
           (read (buffer-string))))))
 
-
-
 ;;
 ;; Google Calendar OAuth
 ;;
@@ -319,9 +309,6 @@ json-read-from-string)."
   `(
     ("access_token" . ,(gcal-access-token))))
 
-
-
-
 ;;
 ;; API URL Builder
 ;;
@@ -347,12 +334,11 @@ json-read-from-string)."
    (if suffix1 (concat "/" suffix1))
    (if suffix2 (concat "/" suffix2))))
 
-
 ;;
 ;; API Wrapper
 ;;
 
-  ;; CalendarList
+;; CalendarList
 
 (defun gcal-calendar-list-list ()
   "CalendarList: list"
@@ -360,7 +346,7 @@ json-read-from-string)."
    (gcal-calendar-list-url)
    (gcal-access-token-params)))
 
-  ;; Events
+;; Events
 
 (defun gcal-events-list (calendar-id &optional params)
   "Events: list"
@@ -386,12 +372,9 @@ json-read-from-string)."
 Example:
 (gcal-events-insert
  \"xxxxxxxxxxxxx@group.calendar.google.com\"
- `(
-   (start (date \"2016-05-25\") )
+ `((start (date \"2016-05-25\"))
    (end (date \"2016-05-26\"))
-   (summary . \"First Test Event\")
-   )
- )"
+   (summary . \"First Test Event\")))"
   (gcal-retrieve-json-post-json
    (gcal-events-url calendar-id)
    (append (gcal-access-token-params) params)
@@ -419,8 +402,6 @@ Example:
    "DELETE"
    (gcal-events-url calendar-id event-id)
    (append (gcal-access-token-params) params) ))
-
-
 
 ;;
 ;; Time Utilities
@@ -477,7 +458,7 @@ IANA Time Zone Database nameで指定します(例:Asia/Tokyo)。
 (defun gcal-datetime (y m d &optional hh mm)
   (gcal-time-format (gcal-time-from-ymdhm y m d hh mm) nil))
 
-  ;; google => emacs
+;; google => emacs
 
 ;;(gcal-time-parse "2014-12-13T10:00:00+09:00")
 ;;(gcal-time-parse "2015-03-06T15:42:32.354Z")
@@ -501,11 +482,6 @@ IANA Time Zone Database nameで指定します(例:Asia/Tokyo)。
         (if (stringp datetime)
             (gcal-time-parse datetime))))))
 
-
-
-
-
-
 ;;
 ;; Utilities
 ;;
@@ -519,8 +495,6 @@ IANA Time Zone Database nameで指定します(例:Asia/Tokyo)。
 
 (defun gcal-failed-p (response-json)
   (not (null (gcal-get-error-code response-json))))
-
-
 
 (provide 'gcal)
 ;;; gcal.el ends here

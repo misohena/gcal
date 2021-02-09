@@ -35,7 +35,6 @@
 (require 'gcal-id)
 (require 'org-id)
 
-
 ;;
 ;; gcal-oevent object
 ;;
@@ -102,7 +101,7 @@
   "指定されたファイルからイベントを集めます。
 
 すでに FILE を開いている場合はそのバッファから集めます。"
-  ;;@todo Use temporary buffer when not visiting file ?
+  ;; @todo Use temporary buffer when not visiting file ?
   ;; (if-let ((buffer (get-file-buffer file)))
   ;;     (with-current-buffer buffer
   ;;       (gcal-org-parse-buffer))
@@ -121,8 +120,7 @@
 ト(org-agenda-entry-types ?)がそうなっているからです。
 
 タイムスタンプ毎にイベントを作るとIDが重複するため、同一エントリー
-内でのタイムスタンプの序数を持たせています。
-"
+内でのタイムスタンプの序数を持たせています。"
   (save-excursion
     (goto-char (point-min))
     (let (entries events)
@@ -165,8 +163,7 @@
                              :ts-end ts-end
                              :recurrence recurrence
                              :location location
-                             :summary-prefix summary-prefix))
-               )
+                             :summary-prefix summary-prefix)))
 
           (when ts-prefix-allowed
             (when (null same-entry-info)  ;; New ID found
@@ -189,8 +186,7 @@
      (gcal-org-make-summary-prefix-path
       (org-get-outline-path)
       gcal-org-header-separator
-      gcal-org-include-parents-header-maximum))
-   ))
+      gcal-org-include-parents-header-maximum))))
 
 (defun gcal-org-make-summary-prefix-ts-prefix (ts-prefix)
   "summary-prefixのts-prefix部分を生成します。"
@@ -239,7 +235,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
       (gcal-org-push-file-specified-cache calendar-id file cache-file)
     (gcal-org-push-file-global-cache calendar-id file)))
 
-    ;; use specified cache-file
+;; use specified cache-file
 
 (defun gcal-org-push-file-specified-cache (calendar-id file cache-file)
   (let ((old-events (gcal-oevents-load cache-file))
@@ -248,7 +244,6 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
     (gcal-oevents-save
      cache-file
      (gcal-org-push-oevents calendar-id new-events old-events))))
-
 
 (defun gcal-oevents-save (file oevents)
   "Save OEVENTS(list of gcal-oevent) to FILE."
@@ -263,15 +258,15 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
           (insert-file-contents file)
           (read (buffer-string))))))
 
-    ;; use global-cache(gcal-org-pushed-events-file)
+;; use global-cache(gcal-org-pushed-events-file)
 
 (defun gcal-org-push-file-global-cache (calendar-id file)
   (let ((calfile-cache (gcal-org-pushed-events-cache calendar-id file)))
 
     (setf (nth 1 calfile-cache)
           (gcal-org-push-oevents calendar-id
-                                 (gcal-org-parse-file file) ;;new events
-                                 (nth 1 calfile-cache)))) ;;old events
+                                 (gcal-org-parse-file file) ; new events
+                                 (nth 1 calfile-cache))))   ; old events
 
   (gcal-org-pushed-events-save))
 
@@ -303,13 +298,10 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
          (calfile-cache (assoc calfile-key gcal-org-pushed-events)))
 
     (when (null calfile-cache)
-      (setq calfile-cache (list calfile-key nil)) ;;0:key 1:events
+      (setq calfile-cache (list calfile-key nil)) ; 0:key 1:events
       (push calfile-cache gcal-org-pushed-events))
 
     calfile-cache))
-
-
-
 
 ;;
 ;; Push list of org-mode events to Google Calendar
@@ -341,14 +333,13 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
   "Send delta between old-events and new-events to calendar(calendar-id).
 old-events will be destroyed."
   (let ((result-events))
-
     (gcal-oevents-diff
      old-events
      new-events
-     ;;(lambda (old-oe new-oe) (insert (format "mod %s\n" (gcal-oevent-summary new-oe))))
-     ;;(lambda (new-oe) (insert (format "add %s\n" (gcal-oevent-summary new-oe))))
-     ;;(lambda (old-oe) (insert (format "del %s\n" (gcal-oevent-summary old-oe))))
-     ;;(lambda (old-oe) (insert (format "eq %s\n" (gcal-oevent-summary old-oe))))
+     ;; (lambda (old-oe new-oe) (insert (format "mod %s\n" (gcal-oevent-summary new-oe))))
+     ;; (lambda (new-oe) (insert (format "add %s\n" (gcal-oevent-summary new-oe))))
+     ;; (lambda (old-oe) (insert (format "del %s\n" (gcal-oevent-summary old-oe))))
+     ;; (lambda (old-oe) (insert (format "eq %s\n" (gcal-oevent-summary old-oe))))
      ;; Change
      (lambda (old-oe new-oe)
        (setq result-events (gcal-org-push-oevents--check
@@ -369,8 +360,7 @@ old-events will be destroyed."
                             "delete")))
      ;; Not Change
      (lambda (old-oe)
-       (push old-oe result-events))
-     )
+       (push old-oe result-events)))
     (nreverse result-events)))
 
 (defun gcal-org-push-oevents--check (res succ-oe fail-oe result-events op)
@@ -389,11 +379,9 @@ old-events will be destroyed."
          (err (gcal-get-error-code res)))
     ;; conflict (may be already pushed and deleted(status=cancelled))
     (if (and (integerp err) (= err 409))
-        ;;@todo use patch?
+        ;; @todo use patch?
         (setq res (gcal-oevent-update calendar-id new-oe))
       res)))
-
-
 
 ;;
 ;; Pull oevents from Google Calendar
@@ -408,8 +396,6 @@ old-events will be destroyed."
       (delq
        nil
        (mapcar #'gcal-oevent-from-gevent (cdr (assq 'items gevents)))))))
-
-
 
 ;;
 ;; Pull events to file from Google Calendar
@@ -437,9 +423,8 @@ old-events will be destroyed."
 (defun gcal-org-pull-to-file (calendar-id
                               file headline cache-file
                               &optional params)
-
   (let* (result-events
-         ;;(cur-events (gcal-org-parse-file file))
+         ;; (cur-events (gcal-org-parse-file file))
          (old-events (gcal-oevents-load cache-file))
          (new-events (gcal-org-pull-oevents calendar-id params)))
 
@@ -501,18 +486,18 @@ old-events will be destroyed."
      ;; summary
      (gcal-org-pull-merge-property
       "headline"
-      (gcal-oevent-summary old-oe) ;;old-value
-      (gcal-oevent-summary new-oe) ;;new-value
-      (substring-no-properties (org-get-heading t t)) ;;curr-value
-      (lambda (value) (gcal-org-set-heading-text value)) ;;update org
+      (gcal-oevent-summary old-oe) ; old-value
+      (gcal-oevent-summary new-oe) ; new-value
+      (substring-no-properties (org-get-heading t t)) ; curr-value
+      (lambda (value) (gcal-org-set-heading-text value)) ; update org
       (lambda (value) (setq old-oe (gcal-oevent-set-property old-oe :summary value)))) ;;update object
      ;; location
      (gcal-org-pull-merge-property
       "location"
-      (gcal-oevent-location old-oe) ;;old-value
-      (gcal-oevent-location new-oe) ;;new-value
-      (org-entry-get (point) "LOCATION") ;;curr-value
-      (lambda (value) (org-set-property "LOCATION" value)) ;;update org
+      (gcal-oevent-location old-oe) ; old-value
+      (gcal-oevent-location new-oe) ; new-value
+      (org-entry-get (point) "LOCATION") ; curr-value
+      (lambda (value) (org-set-property "LOCATION" value)) ; update org
       (lambda (value) (setq old-oe (gcal-oevent-set-property old-oe :location value)))) ;;update object
      ;; ts
      (let ((new-ts-prefix (gcal-oevent-ts-prefix new-oe)))
@@ -522,7 +507,7 @@ old-events will be destroyed."
             (format "timestamp (%s)" new-ts-prefix)
             (list (gcal-oevent-ts-start old-oe) (gcal-oevent-ts-end old-oe) (gcal-oevent-recurrence old-oe)) ;;old-value
             (list (gcal-oevent-ts-start new-oe) (gcal-oevent-ts-end new-oe) (gcal-oevent-recurrence new-oe)) ;;new-value
-            (gcal-org-get-schedule-ts-range new-ts-prefix) ;;cur-value
+            (gcal-org-get-schedule-ts-range new-ts-prefix) ; cur-value
             (lambda (value)
               (gcal-org-set-schedule-ts-range value new-ts-prefix))
             (lambda (value)
@@ -563,10 +548,10 @@ old-events will be destroyed."
               (org-id-goto id)
 
               (funcall func))))
-      ;;not found
+      ;; not found
       ret-if-failed)))
 
- ;;org内容変更
+;; org内容変更
 
 (defun gcal-org-set-heading-text (text)
   "見出しテキストを変更します。"
@@ -654,11 +639,7 @@ old-events will be destroyed."
       ;; Insert recurrence after timestamp if recurrence is unsupported
       (if (gcal-ts-supported-recurrence-p recurrence)
           (gcal-ts-delete-additional-property ts-end :recurrence)
-        (gcal-ts-set-additional-property ts-end :recurrence recurrence))
-      )))
-
-
-
+        (gcal-ts-set-additional-property ts-end :recurrence recurrence)))))
 
 ;;
 ;; format oevent(oevent to org-mode text)
@@ -719,10 +700,6 @@ old-events will be destroyed."
       (forward-line)
       (insert string))))
 
-
-
-
-
 ;;
 ;; Diff org-mode events
 ;;
@@ -743,8 +720,8 @@ old-events will be destroyed."
         (when (and oe
                    (equal (gcal-oevent-id oe) id)
                    (equal (gcal-oevent-ord oe) ord))
-          (setcdr curr (cddr curr)) ;;remove element
-          (setq curr nil) ;;break loop
+          (setcdr curr (cddr curr)) ; remove element
+          (setq curr nil)           ; break loop
           (setq result oe)))
       (setq curr (cdr curr)))
     result))
@@ -768,14 +745,11 @@ old-events will be destroyed."
 
                 ;; not modified event
                 (t
-                 (funcall func-eq new-oe))
-                )))
+                 (funcall func-eq new-oe)))))
     (setq old-oevents (cdr cons-old-oevents)))
   ;; deleted event
   (loop for old-oe in old-oevents
         do (funcall func-del old-oe)))
-
-
 
 ;;
 ;; Difference between gevents
@@ -904,8 +878,7 @@ old-events will be destroyed."
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
               (gcalOrd . ,ord)
               ,@(if summary-prefix `((gcalSummaryPrefix . ,summary-prefix)))))))
-      ,@(if location `((location . ,location)))
-      )))
+      ,@(if location `((location . ,location))))))
 
 (defun gcal-oevent-from-gevent (gevent)
   "Convert a Google Calendar event to a oevent(gcal-oevent object)."
@@ -945,8 +918,7 @@ old-events will be destroyed."
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
        :recurrence recurrence
        :location location
-       :summary-prefix summary-prefix
-       )))))
+       :summary-prefix summary-prefix)))))
 
 (defun gcal-org-remove-summary-prefix (summary-prefix summary)
   "summaryからsummary-prefixを取り除いた結果を返します。"
@@ -960,7 +932,7 @@ old-events will be destroyed."
              summary-prefix summary))
     summary))
 
-  ;; Convert event id
+;; Convert event id
 
 (defun gcal-oevent-id-to-gevent-id (uuid)
   "oeventのID(UUID)をGoogle CalendarのイベントID表現へ変換します。
@@ -976,7 +948,7 @@ base32hexへ変換します。"
   (let ((gid (gcal-oevent-id-to-gevent-id (gcal-oevent-id oevent)))
         (ord (gcal-oevent-ord oevent)))
     (if (= ord 0)
-        gid ;;0のときはそのまま。代表ID。Google Calendarから取り込んだイベントは必ずこれ。
+        gid ;; 0のときはそのまま。代表ID。Google Calendarから取り込んだイベントは必ずこれ。
       (format "%s%05d" gid ord))))
 
 (defun gcal-oevent-base32hex-uuid-p (id)
@@ -1010,23 +982,20 @@ base32hexへ変換します。"
           (ord (string-to-number (substring id 26 (+ 26 5)))))
       (if (gcal-oevent-base32hex-uuid-irreversible-p b32h-id)
           ;; 不可逆ならしかたないのでbase32hexのままにする。
-          (cons b32h-id ord) ;;(base32hex-uuid(26文字) . ord)
-        (cons (gcal-uuid-from-base32hex b32h-id) ord)))) ;;(uuid(36文字) . ord)
+          (cons b32h-id ord) ;; (base32hex-uuid(26文字) . ord)
+        (cons (gcal-uuid-from-base32hex b32h-id) ord)))) ;; (uuid(36文字) . ord)
 
    ;; base32hex-uuid
    ;; (ex: i5o7hja5ch1r14crqmp8g9mv6k) 26文字
    ((gcal-oevent-base32hex-uuid-p id)
     (if (gcal-oevent-base32hex-uuid-irreversible-p id)
         ;; 不可逆ならしかたないのでbase32hexのままにする。
-        (cons id 0) ;;(base32hex-uuid . 0)
+        (cons id 0) ;; (base32hex-uuid . 0)
       (cons (gcal-uuid-from-base32hex id) 0))) ;;(uuid . 0)
 
    ;; unknown
    (t
     (cons id 0))))
-
-
-
 
 ;;
 ;; oevent event operation
@@ -1060,13 +1029,6 @@ base32hexへ変換します。"
 (defun gcal-oevents-delete (calendar-id oevents)
   (loop for oevent in oevents
         do (gcal-oevent-delete calendar-id oevent)))
-
-
-
-
-
-
-
 
 ;;
 ;; oevent timestamp representation
@@ -1178,7 +1140,7 @@ base32hexへ変換します。"
            (substring ts-str 0 -1)
            repeater
            (substring ts-str -1))
-        ;;Unsupported recurrence
+        ;; Unsupported recurrence
         ts-str)
     ts-str))
 
@@ -1186,7 +1148,7 @@ base32hexへ変換します。"
   "RECURRENCEをタイムスタンプのリピーター部分に変換します。変換できない場合(RECURRENCEがnil、対応していない指定等)の場合はnilを返します。"
   (if (and (sequencep recurrence) (= (length recurrence) 1))
       (let ((str (elt recurrence 0)))
-        ;;@todo 同じ意味になる様々な表記に対応する。少なくともGoolgeカレンダーで指定が出来てorg-modeのタイムスタンプで対応できる表記は網羅したい。
+        ;; @todo 同じ意味になる様々な表記に対応する。少なくともGoolgeカレンダーで指定が出来てorg-modeのタイムスタンプで対応できる表記は網羅したい。
         ;; - 毎日 "RRULE:FREQ=DAILY" ← OK
         ;; - 毎週月曜日 "RRULE:FREQ=WEEKLY;BYDAY=MO" ←日付が月曜なら +1wにしたい
         ;; - 毎月 "RRULE:FREQ=MONTHLY" ← OK
@@ -1211,7 +1173,7 @@ base32hexへ変換します。"
                                        ("YEARLY" . "y"))))))
 
                   (concat " +" (or interval "1") repeater-suffix)))))))
-;;(gcal-ts-repeater-from-recurrence ["RRULE:FREQ=DAILY;INTERVAL=2"]) => " +2d"
+;; (gcal-ts-repeater-from-recurrence ["RRULE:FREQ=DAILY;INTERVAL=2"]) => " +2d"
 
 (defun gcal-ts-supported-recurrence-p (recurrence)
   "RECURRENCEが対応している(org-modeのタイムスタンプで表現できる)指定ならtを返します。

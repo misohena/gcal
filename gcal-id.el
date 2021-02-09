@@ -20,7 +20,7 @@
 
 ;;; Commentary:
 
-;; 
+;;
 
 ;;; Code:
 
@@ -116,7 +116,6 @@
 
 (defun gcal-uuid-to-base32hex (uuid)
   (gcal-base32hex-encode (gcal-uuid-to-bytes uuid)))
-
 
 (defun gcal-uuid-p (uuid)
   (and
