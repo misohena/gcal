@@ -217,9 +217,12 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
                                       (week . "WEEKLY")
                                       (month . "MONTHLY")
                                       (year . "YEARLY"))))))
-      (vector
-       ;; https://tools.ietf.org/html/rfc5545#section-3.8.5
-       (format "RRULE:FREQ=%s;INTERVAL=%s" repeater-unit-str repeater-value))
+      ;;@todo check repeater-type? + 'cumulate ++ 'catch-up .+ 'restart
+      (if (and repeater-unit-str
+               (>= repeater-value 1))
+          (vector
+           ;; https://tools.ietf.org/html/rfc5545#section-3.8.5
+           (format "RRULE:FREQ=%s;INTERVAL=%s" repeater-unit-str repeater-value)))
 
     ;; Get from addtional properties
     (gcal-ts-get-additional-property ts :recurrence)))
