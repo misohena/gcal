@@ -797,7 +797,8 @@ old-events will be destroyed."
       . ((private
           . (gcalTsPrefix
              gcalOrd
-             gcalSummaryPrefix)))))))
+             gcalSummaryPrefix
+             gcalUnsupportedRecurrence)))))))
 
 (defun gcal-org-diff-gevents--internal (old-gevent new-gevent properties-info)
   (let (result)
@@ -885,6 +886,8 @@ old-events will be destroyed."
          (ts-start  (gcal-oevent-ts-start oevent))
          (ts-end    (gcal-oevent-ts-end oevent))
          (recurrence (gcal-oevent-recurrence oevent))
+         (supported-recurrence-p
+          (gcal-org-google-supported-recurrence-p recurrence))
          (location  (gcal-oevent-location oevent))
          (ord  (gcal-oevent-ord oevent))
          (summary-prefix (gcal-oevent-summary-prefix oevent)))
@@ -898,12 +901,15 @@ old-events will be destroyed."
                           summary))
       (start . ,(gcal-ts-to-gtime ts-start))
       (end   . ,(gcal-ts-to-gtime (gcal-ts-end-exclusive ts-start ts-end)))
-      ,@(if recurrence `((recurrence . ,recurrence)))
+      ,@(if (and recurrence supported-recurrence-p)
+            `((recurrence . ,recurrence)))
       (extendedProperties
        . ((private
            . (,@(if ts-prefix `((gcalTsPrefix . ,ts-prefix)))
               (gcalOrd . ,ord)
-              ,@(if summary-prefix `((gcalSummaryPrefix . ,summary-prefix)))))))
+              ,@(if summary-prefix `((gcalSummaryPrefix . ,summary-prefix)))
+              ,@(if (and recurrence (not supported-recurrence-p))
+                    `((gcalUnsupportedRecurrence . ,(prin1-to-string recurrence))))))))
       ,@(if location `((location . ,location)))
       )))
 
@@ -928,7 +934,8 @@ old-events will be destroyed."
          (ex-prop-ts-prefix (cdr (assq 'gcalTsPrefix ex-props)))
          (created-on-google (and (null ex-prop-ord) (null ex-prop-ts-prefix)))
          (ts-prefix (if created-on-google gcal-ts-prefix-created-on-google ex-prop-ts-prefix))
-         (summary-prefix (or (cdr (assq 'gcalSummaryPrefix ex-props)) "")))
+         (summary-prefix (or (cdr (assq 'gcalSummaryPrefix ex-props)) ""))
+         (unsupported-recurrence (cdr (assq 'gcalUnsupportedRecurrence ex-props))))
     (cond
      ((not (stringp id))
       (message "invalid event id found '%s'" id)
@@ -943,7 +950,9 @@ old-events will be destroyed."
        :ts-prefix ts-prefix
        :ts-start ts-start
        :ts-end (gcal-ts-end-inclusive ts-start ts-end)
-       :recurrence recurrence
+       :recurrence (or recurrence
+                       (if (stringp unsupported-recurrence)
+                           (read unsupported-recurrence)))
        :location location
        :summary-prefix summary-prefix
        )))))
@@ -959,6 +968,38 @@ old-events will be destroyed."
    summary from google calender: \"%s\""
              summary-prefix summary))
     summary))
+
+(defun gcal-org-google-supported-recurrence-p (recurrence)
+  "Googleカレンダーがサポートしているrecurrenceならtを返します。recurrenceがnilのときはtを返します。
+
+GoogleカレンダーはFREQ=HOURLYをサポートしていないようです。時間毎の繰り返しを設定するUIも見当たりません。"
+  ;; @todo RRULEの書き方全てを考慮していない。というかどのような書き方ができるか把握していない。全体を;で分割してしまって良いのか不明。
+  (not (seq-some
+        (lambda (rrule)
+          (if (and (stringp rrule)
+                   (string-prefix-p "RRULE:" rrule))
+              (let* ((props-str (substring rrule (length "RRULE:")))
+                     (props (mapcar
+                             (lambda (prop)
+                               (if (string-match "\\`\\([^=]+\\)=\\(.*\\)\\'"
+                                                 prop)
+                                   (cons
+                                    (match-string-no-properties 1 prop)
+                                    (match-string-no-properties 2 prop))
+                                 (cons prop nil)))
+                             (split-string props-str ";")))
+                     (freq (cdr (assoc "FREQ" props))))
+                ;; Unsupported FREQ
+                (and
+                 (stringp freq)
+                 (or
+                  (string= freq "HOURLY")
+                  (string= freq "MINUTELY")
+                  (string= freq "SECONDLY"))))
+            ;; not string or not RRULE:
+            t))
+        recurrence)))
+
 
   ;; Convert event id
 
