@@ -65,6 +65,12 @@
         (org-plist-delete oevent prop)
       (plist-put oevent prop value))))
 
+
+
+;;
+;; Parse org-mode document
+;;
+
 (defcustom gcal-org-allowed-timestamp-prefix '(nil "SCHEDULED" "DEADLINE")
   "パースする際にイベントとみなされるタイムスタンプの接頭辞を持ちます。
 ここに含まれない接頭辞のついたタイムスタンプは無視され、イベントとして扱われません。
@@ -93,10 +99,6 @@
   :type '(alist
           :key-type (choice string (const nil))
           :value-type string))
-
-;;
-;; Parse org-mode document
-;;
 
 (defun gcal-org-parse-file (file)
   "指定されたファイルからイベントを集めます。
