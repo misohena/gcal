@@ -48,6 +48,7 @@
       (setq result (gcal-oevent-set-property result (car args) (cadr args)))
       (setq args (cddr args)))
     result))
+(defun gcal-oevent-deleted (oevent) (plist-get oevent :deleted))
 (defun gcal-oevent-id (oevent) (plist-get oevent :id))
 (defun gcal-oevent-ord (oevent) (plist-get oevent :ord))
 (defun gcal-oevent-summary (oevent) (plist-get oevent :summary))
@@ -59,7 +60,8 @@
 (defun gcal-oevent-summary-prefix (oevent) (plist-get oevent :summary-prefix))
 
 (defun gcal-oevent-set-property (oevent prop value)
-  (let ((opt-props '(:recurrence
+  (let ((opt-props '(:deleted
+                     :recurrence
                      :location)))
     (if (and (null value) (memq prop opt-props))
         (org-plist-delete oevent prop)
@@ -232,6 +234,78 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
     ;; Get from addtional properties
     (gcal-ts-get-additional-property ts :recurrence)))
 
+
+
+;;
+;; Calendar Cache with Org Events
+;;
+
+;; OCALCACHE object has a list of OEVENT and the following properties:
+;; - :next-sync-token
+
+(defun gcal-ocalcache-create (oevents &rest plist)
+  (append
+   (list
+    'gcal-ocalcache
+    oevents)
+   plist))
+
+(defun gcal-ocalcache-p (ocalcache)
+  (eq (car ocalcache) 'gcal-ocalcache))
+
+(defun gcal-ocalcache-oevents (ocalcache)
+  (if (gcal-ocalcache-p ocalcache)
+      (cadr ocalcache)
+    ;; for compatibility
+    ocalcache))
+
+(defun gcal-ocalcache-set-oevents (ocalcache oevents)
+  (if (gcal-ocalcache-p ocalcache)
+      (progn
+        (setcar (cdr ocalcache) oevents)
+        ocalcache)
+    ;; for compatibility
+    (gcal-ocalcache-create oevents)))
+
+(defun gcal-ocalcache-next-sync-token (ocalcache)
+  (gcal-ocalcache-get-property ocalcache :next-sync-token))
+
+;; (defun gcal-ocalcache-updated (ocalcache)
+;;   (gcal-ocalcache-get-property ocalcache :updated))
+
+(defun gcal-ocalcache-set-next-sync-token (ocalcache next-sync-token)
+  (gcal-ocalcache-put-property ocalcache :next-sync-token next-sync-token))
+
+(defun gcal-ocalcache-get-property (ocalcache prop)
+  (if (gcal-ocalcache-p ocalcache)
+      (plist-get (cddr ocalcache) prop)
+    ;; for compatibility
+    nil))
+
+(defun gcal-ocalcache-put-property (ocalcache prop value)
+  (if (gcal-ocalcache-p ocalcache)
+      (progn
+        (setcdr (cdr ocalcache)
+                (plist-put (cddr ocalcache) prop value))
+        ocalcache)
+    ;; for compatibility
+    (gcal-ocalcache-create ocalcache prop value)))
+
+(defun gcal-ocalcache-save (file ocalcache)
+  "Save OCALCACHE(a list of oevent and some properties) to FILE."
+  (with-temp-file file
+    (pp ocalcache (current-buffer))))
+
+(defun gcal-ocalcache-load (file)
+  "Load ocalcache(a list of oevent and some properties) from FILE."
+  (if (file-exists-p file)
+      (ignore-errors
+        (with-temp-buffer
+          (insert-file-contents file)
+          (read (buffer-string))))))
+
+
+
 ;;
 ;; Push org file to Google Calendar
 ;;
@@ -241,41 +315,36 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
       (gcal-org-push-file-specified-cache calendar-id file cache-file)
     (gcal-org-push-file-global-cache calendar-id file)))
 
-    ;; use specified cache-file
+  ;; use specified cache-file
 
 (defun gcal-org-push-file-specified-cache (calendar-id file cache-file)
-  (let ((old-events (gcal-oevents-load cache-file))
-        (new-events (gcal-org-parse-file file)))
+  (let* ((ocalcache (gcal-ocalcache-load cache-file))
+         (old-events (gcal-ocalcache-oevents ocalcache))
+         (new-events (gcal-org-parse-file file)))
 
     (gcal-oevents-save
      cache-file
-     (gcal-org-push-oevents calendar-id new-events old-events))))
+     (gcal-ocalcache-set-oevents
+      ocalcache
+      (gcal-org-push-oevents calendar-id new-events old-events)))))
 
-
-(defun gcal-oevents-save (file oevents)
-  "Save OEVENTS(list of gcal-oevent) to FILE."
-  (with-temp-file file
-    (pp oevents (current-buffer))))
-
-(defun gcal-oevents-load (file)
-  "Load list of gcal-oevent from FILE."
-  (if (file-exists-p file)
-      (ignore-errors
-        (with-temp-buffer
-          (insert-file-contents file)
-          (read (buffer-string))))))
-
-    ;; use global-cache(gcal-org-pushed-events-file)
+  ;; use global-cache(gcal-org-pushed-events-file)
 
 (defun gcal-org-push-file-global-cache (calendar-id file)
-  (let ((calfile-cache (gcal-org-pushed-events-cache calendar-id file)))
+  (let* ((calfile-cache (gcal-org-pushed-events-cache calendar-id file))
+         (ocalcache (nth 1 calfile-cache))
+         (result-oevents (gcal-org-push-oevents
+                          calendar-id
+                          (gcal-org-parse-file file) ;;new events
+                          (gcal-ocalcache-oevents ocalcache)))) ;;old events
 
+    ;; update ocalcache
     (setf (nth 1 calfile-cache)
-          (gcal-org-push-oevents calendar-id
-                                 (gcal-org-parse-file file) ;;new events
-                                 (nth 1 calfile-cache)))) ;;old events
+          (gcal-ocalcache-set-oevents ocalcache result-oevents))
 
-  (gcal-org-pushed-events-save))
+    (gcal-org-pushed-events-save)
+
+    result-oevents))
 
 (defvar gcal-org-pushed-events nil)
 
@@ -305,7 +374,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
          (calfile-cache (assoc calfile-key gcal-org-pushed-events)))
 
     (when (null calfile-cache)
-      (setq calfile-cache (list calfile-key nil)) ;;0:key 1:events
+      (setq calfile-cache (list calfile-key nil)) ;;0:key 1:ocalcache
       (push calfile-cache gcal-org-pushed-events))
 
     calfile-cache))
@@ -331,7 +400,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 ;;
 ;;   (gcal-org-push-oevents "example@gmail.com"
 ;;     (gcal-org-parse-file "~/my-schedule.org")
-;;     (gcal-oevents-load "~/my-schedule.gcal-cache"))
+;;     (gcal-ocalcache-load "~/my-schedule.gcal-cache"))
 ;;
 ;;  Delete:
 ;;   (gcal-org-push-oevents "example@gmail.com"
@@ -405,6 +474,7 @@ old-events will be destroyed."
   "Download calendar events as list of gcal-oevent."
   (let ((gevents (gcal-events-list calendar-id params)))
     (if (gcal-failed-p gevents)
+        ;;@todo what to return?
         (message "error %s" gevents)
       ;; succeeded
       (delq
@@ -417,37 +487,41 @@ old-events will be destroyed."
 ;; Pull events to file from Google Calendar
 ;;
 
-;; (defun gcal-org-pull-file (calendar-id file headline &optional params)
-;;   (let ((oevents (gcal-org-pull-oevents calendar-id params)))
-;;     ;; check error
-;;     (if (gcal-failed-p oevents)
-;;         (error ("error %s" oevents)))
-
-;;     ;;
-;;     (save-window-excursion
-;;       (save-excursion
-;;         (set-buffer (find-file-noselect file))
-
-;;         (loop for oevent in oevents
-;;               do (when (and oevent
-;;                             ;;(not (org-id-find-id-in-file (gcal-oevent-id oevent) file)))
-;;                             (not (org-id-find (gcal-oevent-id oevent))))
-;;                    (gcal-org-insert-string-after-headline
-;;                     (gcal-oevent-format oevent) headline)))))))
-
-
 (defun gcal-org-pull-to-file (calendar-id
                               file headline cache-file
-                              &optional params)
+                              &optional params full-sync)
+  (let* (;;(cur-events (gcal-org-parse-file file))
+         (ocalcache (gcal-ocalcache-load cache-file))
+         (old-events (gcal-ocalcache-oevents ocalcache))
+         (gevents
+          (if (or (assq 'nextSyncToken params)
+                  full-sync)
+              ;; If nextSyncToken is specified, don't do anything extra
+              (gcal-events-list calendar-id params)
+            ;; Try using ocalcache's next-sync-token
+            (if-let ((next-sync-token (gcal-ocalcache-next-sync-token ocalcache)))
+                (let* ((params-with-sync-token
+                        (cons
+                         (cons 'nextSyncToken next-sync-token)
+                         params))
+                       (gevents-1
+                        (gcal-events-list calendar-id params-with-sync-token)))
+                  (if (eq (gcal-get-error-code gevents-1) 410)
+                      ;; Sync token is no longer valid, a full sync is required.
+                      (progn
+                        (message "Sync token is no longer valid, a full sync is required.")
+                        (gcal-events-list calendar-id params))
+                    gevents-1))
+              ;; ocalcache does not have next-sync-token
+              (gcal-events-list calendar-id params))))
+         (next-sync-token (cdr (assq 'nextSyncToken gevents)))
+         (new-events
+          (mapcar (lambda (gevent) (gcal-oevent-from-gevent gevent t))
+                  (cdr (assq 'items gevents))))
+         result-events)
 
-  (let* (result-events
-         ;;(cur-events (gcal-org-parse-file file))
-         (old-events (gcal-oevents-load cache-file))
-         (new-events (gcal-org-pull-oevents calendar-id params)))
-
-    ;; check error
-    (if (gcal-failed-p new-events)
-        (error "error %s" new-events))
+    (if (gcal-failed-p gevents)
+        (error "gcal-events-list failed %s" gevents))
 
     ;; merge
     (gcal-oevents-diff
@@ -455,10 +529,15 @@ old-events will be destroyed."
      new-events
      ;; mod
      (lambda (old-oe new-oe)
-       (push (gcal-org-pull--entry-mod file old-oe new-oe) result-events))
+       (if (gcal-oevent-deleted new-oe)
+           (push (gcal-org-pull--entry-del file old-oe) result-events)
+         (push (gcal-org-pull--entry-mod file old-oe new-oe) result-events)))
      ;; add
      (lambda (new-oe)
-       (push (gcal-org-pull--entry-add file headline new-oe) result-events))
+       (if (gcal-oevent-deleted new-oe)
+           ;; unknown event deleted
+           nil
+         (push (gcal-org-pull--entry-add file headline new-oe) result-events)))
      ;; del
      (lambda (old-oe)
        (push (gcal-org-pull--entry-del file old-oe) result-events))
@@ -466,8 +545,16 @@ old-events will be destroyed."
      (lambda (old-oe)
        (push old-oe result-events)))
 
+    ;; update ocalcache
+    (setq ocalcache (gcal-ocalcache-set-oevents
+                     ocalcache
+                     (delq nil (nreverse result-events))))
+    (setq ocalcache (gcal-ocalcache-set-next-sync-token
+                     ocalcache
+                     next-sync-token))
+
     ;; save cache file
-    (gcal-oevents-save cache-file (delq nil (nreverse result-events)))))
+    (gcal-ocalcache-save cache-file ocalcache)))
 
 (defun gcal-org-pull--entry-add (file headline new-oe)
   ;; @todo 本当はタイムスタンプ(id,ord)を追加しなければならない。
@@ -915,7 +1002,7 @@ old-events will be destroyed."
       ,@(if location `((location . ,location)))
       )))
 
-(defun gcal-oevent-from-gevent (gevent)
+(defun gcal-oevent-from-gevent (gevent &optional include-deleted)
   "Convert a Google Calendar event to a oevent(gcal-oevent object)."
   (let* ((gid (cdr (assq 'id gevent)))
          (id-ord (gcal-oevent-id-ord-from-gevent-id gid))
@@ -943,7 +1030,9 @@ old-events will be destroyed."
       (message "invalid event id found '%s'" id)
       nil)
      ((string= status "cancelled")
-      nil)
+      (if include-deleted
+          (make-gcal-oevent :id id :ord ord :deleted t)
+        nil))
      (t
       (make-gcal-oevent
        :id id
