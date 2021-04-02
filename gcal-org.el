@@ -322,7 +322,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
          (old-events (gcal-ocalcache-oevents ocalcache))
          (new-events (gcal-org-parse-file file)))
 
-    (gcal-oevents-save
+    (gcal-ocalcache-save
      cache-file
      (gcal-ocalcache-set-oevents
       ocalcache
@@ -391,7 +391,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 ;;     (gcal-org-push-oevents "example@gmail.com"
 ;;       (gcal-org-parse-file "~/my-schedule.org") nil))
 ;;
-;;   (gcal-oevents-save "~/my-schedule.gcal-cache" my-schedule-pushed-oevents)
+;;   (gcal-ocalcache-save "~/my-schedule.gcal-cache" my-schedule-pushed-oevents)
 ;;
 ;;  Upload delta:
 ;;   (gcal-org-push-oevents "example@gmail.com"
