@@ -194,67 +194,95 @@ json-read-from-string)."
 (defun gcal-oauth-get (token auth-url token-url client-id client-secret scope token-file)
   "アクセストークンを取得します。必要なら認証やリフレッシュを行います。"
 
-  (if (= (length gcal-client-id) 0) (error "gcal-client-id is empty."))
-  (if (= (length gcal-client-secret) 0) (error "gcal-client-secret is empty."))
+  (if (or (null client-id) (string-empty-p client-id))
+      (error "client-id is not specified"))
+  (if (or (null client-secret) (string-empty-p client-secret))
+      (error "client-secret is not specified"))
 
   ;; load from token-file
-  (if (null token)
-      (setq token (gcal-oauth-load-token token-file)))
+  (when (null token)
+    (setq token (gcal-oauth-load-token token-file)))
 
   ;; refresh token
   (when (and token
-             (time-less-p (gcal-oauth-token-expires token) (current-time)))
+             (gcal-oauth-token-expired-p token))
     (setq token (gcal-oauth-refresh token client-id client-secret token-url))
-    (gcal-oauth-save-token token-file token))
+    (gcal-oauth-save-token token-file token)) ;; save token if not null
 
   ;; new token
   (when (null token)
     (setq token (gcal-oauth-auth auth-url token-url client-id client-secret scope))
-    (gcal-oauth-save-token token-file token))
+    (gcal-oauth-save-token token-file token)) ;; save token if not null
+
+  ;; failed
+  (when (null token)
+    (error "Failed to get access token"))
 
   ;; return token
   token)
 
 (defun gcal-oauth-auth (auth-url token-url client-id client-secret scope)
-  "OAuthによりアクセストークンを取得します。gcal-oauth-token構造体を返します。"
-  (let* ((result (gcal-oauth-get-access-token auth-url token-url client-id client-secret scope))
-         (access-token (cdr (assq 'access_token result)))
-         (expires-in (cdr (assq 'expires_in result)))
-         (refresh-token (cdr (assq 'refresh_token result)))
-         (expires (time-add (current-time) (seconds-to-time expires-in))))
-    (make-gcal-oauth-token
-     :access access-token
-     :expires expires
-     :refresh refresh-token
-     :url token-url)))
+  "OAuthによりアクセストークンを取得します。
+
+gcal-oauth-tokenオブジェクトを返します。
+
+失敗したらnilを返します。"
+  (when-let ((response (gcal-oauth-get-access-token
+                        auth-url token-url client-id client-secret scope)))
+    (let* ((access-token (cdr (assq 'access_token response)))
+           (expires-in (cdr (assq 'expires_in response)))
+           (refresh-token (cdr (assq 'refresh_token response)))
+           (expires-at
+            (if expires-in
+                (time-add (current-time) (seconds-to-time expires-in))
+              nil)))
+      (make-gcal-oauth-token
+       :access access-token
+       :expires expires-at
+       :refresh refresh-token
+       :url token-url))))
 
 (defun gcal-oauth-refresh (token client-id client-secret &optional token-url)
-  "gcal-oauth-token構造体のアクセストークンをリフレッシュします。"
-  (let* ((result (gcal-oauth-get-refresh-token
-                  (gcal-oauth-token-refresh token)
-                  (or token-url (gcal-oauth-token-url token))
-                  client-id client-secret))
-         (access-token (cdr (assq 'access_token result)))
-         (expires-in (cdr (assq 'expires_in result)))
-         (expires (time-add (current-time) (seconds-to-time expires-in))))
-    (when (and access-token expires)
+  "gcal-oauth-tokenオブジェクトのアクセストークンをリフレッシュします。
+
+アクセストークンと期限を更新したTOKENを返します。
+
+リフレッシュに失敗したらnilを返します。"
+  (when-let ((response (gcal-oauth-get-refreshed-token
+                        (gcal-oauth-token-refresh token)
+                        (or token-url (gcal-oauth-token-url token))
+                        client-id
+                        client-secret)))
+    (let* ((access-token (cdr (assq 'access_token response)))
+           (expires-in (cdr (assq 'expires_in response)))
+           (expires-at
+            (if expires-in
+                (time-add (current-time) (seconds-to-time expires-in))
+              nil)))
       (setf (gcal-oauth-token-access token) access-token)
-      (setf (gcal-oauth-token-expires token) expires)))
-  token)
+      (setf (gcal-oauth-token-expires token) expires-at)
+      token)))
 
-
+(defun gcal-oauth-token-expired-p (token)
+  "アクセストークンが期限切れになっているならtを返します。"
+  (and
+   token
+   (gcal-oauth-token-expires token) ;;not null
+   (time-less-p (gcal-oauth-token-expires token) (current-time))))
 
    ;; implementation details
 (defun gcal-oauth-get-access-token (auth-url token-url client-id client-secret scope)
   "アクセストークンを取得します。JSONをリストへ変換したもので返します。"
-  (gcal-retrieve-json-post-www-form
-   token-url
-   `(
-     ("client_id" . ,client-id)
-     ("client_secret" . ,client-secret)
-     ("redirect_uri" . "urn:ietf:wg:oauth:2.0:oob")
-     ("grant_type" . "authorization_code")
-     ("code" . ,(gcal-oauth-get-authorization-code auth-url client-id scope)))))
+  (gcal-oauth-check-access-token-response
+   (gcal-retrieve-json-post-www-form
+    token-url
+    `(
+      ("client_id" . ,client-id)
+      ("client_secret" . ,client-secret)
+      ("redirect_uri" . "urn:ietf:wg:oauth:2.0:oob")
+      ("grant_type" . "authorization_code")
+      ("code" . ,(gcal-oauth-get-authorization-code auth-url client-id scope))))
+   "get"))
 
 (defun gcal-oauth-get-authorization-code (auth-url client-id scope)
   "ブラウザを開いてユーザに認証してもらい、認証コードを受け付けます。"
@@ -267,16 +295,41 @@ json-read-from-string)."
       ("scope" . ,scope))))
   (read-string "Enter the code your browser displayed: "))
 
-(defun gcal-oauth-get-refresh-token (refresh-token token-url client-id client-secret)
+(defun gcal-oauth-get-refreshed-token (refresh-token token-url client-id client-secret)
   "リフレッシュされたアクセストークンを取得します。JSONをリストへ変換したもので返します。"
-  (gcal-retrieve-json-post-www-form
-   token-url
-   `(
-     ("client_id" . ,client-id)
-     ("client_secret" . ,client-secret)
-     ("redirect_uri" . "urn:ietf:wg:oauth:2.0:oob")
-     ("grant_type" . "refresh_token")
-     ("refresh_token" . ,refresh-token))))
+  (gcal-oauth-check-access-token-response
+   (gcal-retrieve-json-post-www-form
+    token-url
+    `(
+      ("client_id" . ,client-id)
+      ("client_secret" . ,client-secret)
+      ("redirect_uri" . "urn:ietf:wg:oauth:2.0:oob")
+      ("grant_type" . "refresh_token")
+      ("refresh_token" . ,refresh-token)))
+   "refresh"))
+
+(defun gcal-oauth-check-access-token-response (response operation)
+  "アクセストークン取得(またはリフレッシュ)のRESPONSEをチェックします。問題があればエラーメッセージを表示してnilを返します。問題が無ければRESPONSEをそのまま返します。"
+  ;;(message "%s access token response = %s" operation response)
+
+  (let ((err (cdr (assq 'error response)))
+        (err-desc (cdr (assq 'error_description response)))
+        (access-token (cdr (assq 'access_token response))))
+    (cond
+     ;; Error
+     (err
+      (message "Failed to %s access token (err=%s description=%s)"
+               operation err err-desc)
+      nil)
+
+     ;; Not contains access_token
+     ((null access-token)
+      (message "Failed to %s access token (response=%s)"
+               operation response)
+      nil)
+
+     ;; Succeeded
+     (t response))))
 
 (defun gcal-oauth-save-token (file token)
   (if (and file token)
