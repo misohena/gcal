@@ -102,6 +102,15 @@
           :key-type (choice string (const nil))
           :value-type string))
 
+(defcustom gcal-org-remove-invisible-text-from-summary nil
+  "イベントのsummaryから不可視のテキストを除去するかを指定します。
+
+`t'のときinvisibleテキストプロパティに基づいて見えない部分を除去します。ハイパーリンクをヘッドラインに含んでいる場合にブラケットやリンク先の部分を除去できます。
+
+注意:`t'のとき、Googleカレンダー側でsummaryを変更した場合にOrg側で不可視部分が削除されてしまう場合があります。"
+  :group 'gcal
+  :type 'boolean)
+
 (defun gcal-org-parse-file (file)
   "指定されたファイルからイベントを集めます。
 
@@ -140,7 +149,7 @@
                ;; ID is not needed when ts-prefix is not allowed.
                (id         (when ts-prefix-allowed (org-id-get-create))) ;; change (point)
                (location   (org-entry-get (point) "LOCATION"))
-               (summary    (substring-no-properties (org-get-heading t t)))
+               (summary    (gcal-org-parse-buffer--make-summary))
                (ts         (cadr (org-element-timestamp-parser)))
                (ts-end-pos (plist-get ts :end))
                (ts-start   (list
@@ -181,6 +190,30 @@
             (push oevent events))
           (goto-char ts-end-pos)))
       (nreverse events))))
+
+(defun gcal-org-parse-buffer--make-summary ()
+  (substring-no-properties
+   (funcall
+    (if gcal-org-remove-invisible-text-from-summary
+        #'gcal-org-visible-string
+      #'identity)
+    (org-get-heading t t))))
+
+(defun gcal-org-visible-string (str)
+  "文字列から不可視のテキストを除去します。"
+  (let ((beg 0)
+        (end (length str))
+        (result ""))
+    (while (/= beg end)
+      ;; Skip invisible text
+      (while (and (/= beg end)
+                  (invisible-p (get-char-property beg 'invisible str)))
+        (setq beg (next-single-char-property-change beg 'invisible str end)))
+      ;; Get visible text
+      (let ((next (next-single-char-property-change beg 'invisible str end)))
+        (setq result (concat result (substring str beg next)))
+        (setq beg next)))
+    result))
 
 (defun gcal-org-parse-buffer--make-summary-prefix (ts-prefix)
   "現在の位置(と引数で与えられた情報)からsummary-prefixを生成します。"
