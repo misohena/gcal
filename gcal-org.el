@@ -137,6 +137,10 @@
 内でのタイムスタンプの序数を持たせています。
 "
   (save-excursion
+    ;; update invisible text properties for the entire buffer
+    (when gcal-org-remove-invisible-text-from-summary
+      (org-font-lock-ensure))
+
     (goto-char (point-min))
     (let (entries events)
       ;; search timestamps
