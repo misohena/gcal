@@ -87,9 +87,9 @@
 
 (defun gcal-hexstr-to-bytes (str)
   (concat
-   (loop for (a b) on (mapcar (lambda (c) (string-to-number (string c) 16)) str)
-         by #'cddr
-         collect (+ (lsh a 4) b))))
+   (cl-loop for (a b) on (mapcar (lambda (c) (string-to-number (string c) 16)) str)
+            by #'cddr
+            collect (+ (lsh a 4) b))))
 
 (defun gcal-hexstr-from-bytes (bytes)
   (mapconcat (lambda (c) (format "%02x" c)) bytes ""))
