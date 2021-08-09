@@ -878,28 +878,28 @@ old-events will be destroyed."
 (defun gcal-oevents-diff (old-oevents new-oevents func-mod func-add func-del func-eq)
   "Compare the two oevent list(OLD-EVENTS NEW-EVENTS) and call FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
   (let ((cons-old-oevents (cons nil old-oevents)))
-    (loop for new-oe in new-oevents
-          do (let ((old-oe (gcal-oevents-find-first-and-remove
-                            cons-old-oevents
-                            (gcal-oevent-id new-oe)
-                            (gcal-oevent-ord new-oe))))
-               (cond
-                ;; new event
-                ((null old-oe)
-                 (funcall func-add new-oe))
+    (cl-loop for new-oe in new-oevents
+             do (let ((old-oe (gcal-oevents-find-first-and-remove
+                               cons-old-oevents
+                               (gcal-oevent-id new-oe)
+                               (gcal-oevent-ord new-oe))))
+                  (cond
+                   ;; new event
+                   ((null old-oe)
+                    (funcall func-add new-oe))
 
-                ;; modified event
-                ((not (equal old-oe new-oe))
-                 (funcall func-mod old-oe new-oe))
+                   ;; modified event
+                   ((not (equal old-oe new-oe))
+                    (funcall func-mod old-oe new-oe))
 
-                ;; not modified event
-                (t
-                 (funcall func-eq new-oe))
-                )))
+                   ;; not modified event
+                   (t
+                    (funcall func-eq new-oe))
+                   )))
     (setq old-oevents (cdr cons-old-oevents)))
   ;; deleted event
-  (loop for old-oe in old-oevents
-        do (funcall func-del old-oe)))
+  (cl-loop for old-oe in old-oevents
+           do (funcall func-del old-oe)))
 
 
 
@@ -1223,12 +1223,12 @@ base32hexへ変換します。"
 
 
 (defun gcal-oevents-insert (calendar-id oevents)
-  (loop for oevent in oevents
-        do (gcal-oevent-insert calendar-id oevent)))
+  (cl-loop for oevent in oevents
+           do (gcal-oevent-insert calendar-id oevent)))
 
 (defun gcal-oevents-delete (calendar-id oevents)
-  (loop for oevent in oevents
-        do (gcal-oevent-delete calendar-id oevent)))
+  (cl-loop for oevent in oevents
+           do (gcal-oevent-delete calendar-id oevent)))
 
 
 
