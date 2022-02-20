@@ -69,11 +69,13 @@
 ;; HTTP
 
 (defun gcal-http (method url params headers data)
-  (let ((url-request-method (or method "GET"))
-        (url-request-extra-headers headers)
-        (url-request-data data))
-    (gcal-parse-http-response
-     (url-retrieve-synchronously (gcal-http-make-query-url url params)))))
+  (let* ((url-request-method (or method "GET"))
+         (url-request-extra-headers headers)
+         (url-request-data data)
+         (buffer (url-retrieve-synchronously (gcal-http-make-query-url url params))))
+    (unwind-protect
+        (gcal-parse-http-response buffer)
+      (kill-buffer buffer))))
 
 (defun gcal-parse-http-response (buffer)
   "Parse HTTP response in buffer."
