@@ -311,7 +311,10 @@ gcal-oauth-tokenオブジェクトを返します。
    "refresh"))
 
 (defun gcal-oauth-check-access-token-response (response operation)
-  "アクセストークン取得(またはリフレッシュ)のRESPONSEをチェックします。問題があればエラーメッセージを表示してnilを返します。問題が無ければRESPONSEをそのまま返します。"
+  "アクセストークン取得(またはリフレッシュ)のRESPONSEをチェックします。
+
+問題があればエラーメッセージを表示してnilを返します。問題が無けれ
+ばRESPONSEをそのまま返します。"
   ;;(message "%s access token response = %s" operation response)
 
   (let ((err (cdr (assq 'error response)))
@@ -544,7 +547,10 @@ IANA Time Zone Database nameで指定します(例:Asia/Tokyo)。
   (cdr (assq 'date gtime)))
 
 (defun gcal-gtime-date-time-str (gtime)
-  "ex: ((dateTime . \"2009-10-25T11:00:54+09:00\")) => \"2009-10-25T11:00:54+09:00\" or nil"
+  "gcal-gtime-date-time-str
+
+ex: ((dateTime . \"2009-10-25T11:00:54+09:00\"))
+     => \"2009-10-25T11:00:54+09:00\" or nil"
   (cdr (assq 'dateTime gtime)))
 
 (defun gcal-time-from-gtime (gtime)

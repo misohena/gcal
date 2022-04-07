@@ -105,9 +105,12 @@
 (defcustom gcal-org-remove-invisible-text-from-summary nil
   "イベントのsummaryから不可視のテキストを除去するかを指定します。
 
-`t'のときinvisibleテキストプロパティに基づいて見えない部分を除去します。ハイパーリンクをヘッドラインに含んでいる場合にブラケットやリンク先の部分を除去できます。
+`t'のときinvisibleテキストプロパティに基づいて見えない部分を除去
+します。ハイパーリンクをヘッドラインに含んでいる場合にブラケット
+やリンク先の部分を除去できます。
 
-注意:`t'のとき、Googleカレンダー側でsummaryを変更した場合にOrg側で不可視部分が削除されてしまう場合があります。"
+注意:`t'のとき、Googleカレンダー側でsummaryを変更した場合にOrg側
+で不可視部分が削除されてしまう場合があります。"
   :group 'gcal
   :type 'boolean)
 
@@ -703,7 +706,9 @@ old-events will be destroyed."
     (replace-match text t t nil 4)))
 
 (defun gcal-org-get-schedule-element (&optional keyword)
-  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をorg-element-timestamp-parserの戻り値で取得します。日付の範囲表現も取得できます。"
+  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値を
+org-element-timestamp-parserの戻り値で取得します。日付の範囲表現
+も取得できます。"
   (save-excursion
     (org-back-to-heading t)
     (forward-line)
@@ -876,7 +881,8 @@ old-events will be destroyed."
     result))
 
 (defun gcal-oevents-diff (old-oevents new-oevents func-mod func-add func-del func-eq)
-  "Compare the two oevent list(OLD-EVENTS NEW-EVENTS) and call FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
+  "Compare the two oevent list(OLD-EVENTS NEW-EVENTS) and call
+FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
   (let ((cons-old-oevents (cons nil old-oevents)))
     (cl-loop for new-oe in new-oevents
              do (let ((old-oe (gcal-oevents-find-first-and-remove
@@ -1160,7 +1166,10 @@ base32hexへ変換します。"
                       (substring id 26)))))
 
 (defun gcal-oevent-base32hex-uuid-irreversible-p (id)
-  "ID がUUIDのbase32hex表記であり、かつ、UUIDへ変換して再度base32hexに変換したときに ID に戻らないなら(不可逆なら) t を返します。Googleカレンダーで作成した予定はなぜかそのようなIDを持つことがあります。"
+  "ID がUUIDのbase32hex表記であり、かつ、UUIDへ変換して再度
+base32hexに変換したときに ID に戻らないなら(不可逆なら) t を返し
+ます。Googleカレンダーで作成した予定はなぜかそのようなIDを持つこ
+とがあります。"
   ;; ex: 08upbl98ch96ef8s14lg3f0r8v => t
   ;; ex: 08upbl98ch96ef8s14lg3f0r8s => nil
   (and (gcal-base32hex-p id) (= (length id) 26)
@@ -1352,7 +1361,9 @@ base32hexへ変換します。"
     ts-str))
 
 (defun gcal-ts-repeater-from-recurrence (recurrence)
-  "RECURRENCEをタイムスタンプのリピーター部分に変換します。変換できない場合(RECURRENCEがnil、対応していない指定等)の場合はnilを返します。"
+  "RECURRENCEをタイムスタンプのリピーター部分に変換します。
+
+変換できない場合(RECURRENCEがnil、対応していない指定等)の場合はnilを返します。"
   (if (and (sequencep recurrence) (= (length recurrence) 1))
       (let ((str (elt recurrence 0)))
         ;;@todo 同じ意味になる様々な表記に対応する。少なくともGoolgeカレンダーで指定が出来てorg-modeのタイムスタンプで対応できる表記は網羅したい。
