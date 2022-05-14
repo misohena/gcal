@@ -34,6 +34,7 @@
 (require 'gcal)
 (require 'gcal-id)
 (require 'org-id)
+(require 'org-element)
 
 
 ;;
