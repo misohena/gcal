@@ -275,27 +275,43 @@ gcal-oauth-tokenオブジェクトを返します。
    ;; implementation details
 (defun gcal-oauth-get-access-token (auth-url token-url client-id client-secret scope)
   "アクセストークンを取得します。JSONをリストへ変換したもので返します。"
-  (gcal-oauth-check-access-token-response
-   (gcal-retrieve-json-post-www-form
-    token-url
-    `(
-      ("client_id" . ,client-id)
-      ("client_secret" . ,client-secret)
-      ("redirect_uri" . "urn:ietf:wg:oauth:2.0:oob")
-      ("grant_type" . "authorization_code")
-      ("code" . ,(gcal-oauth-get-authorization-code auth-url client-id scope))))
-   "get"))
+  (let* ((auth-code-and-uri
+          (gcal-oauth-get-authorization-code auth-url client-id scope))
+         (code (car auth-code-and-uri))
+         (redirect-uri (cdr auth-code-and-uri)))
+    (gcal-oauth-check-access-token-response
+     (gcal-retrieve-json-post-www-form
+      token-url
+      `(
+        ("client_id" . ,client-id)
+        ("client_secret" . ,client-secret)
+        ("redirect_uri" . ,redirect-uri)
+        ("grant_type" . "authorization_code")
+        ("code" . ,code)))
+     "get")))
+
+(defvar gcal-oauth-use-oob-p nil
+  "When t, use deprecated OAuth Out of Bound (OOB) Flow.")
 
 (defun gcal-oauth-get-authorization-code (auth-url client-id scope)
   "ブラウザを開いてユーザに認証してもらい、認証コードを受け付けます。"
-  (browse-url
-   (gcal-http-make-query-url
-    auth-url
-    `(("client_id" . ,client-id)
-      ("response_type" . "code")
-      ("redirect_uri" . "urn:ietf:wg:oauth:2.0:oob")
-      ("scope" . ,scope))))
-  (read-string "Enter the code your browser displayed: "))
+  (if gcal-oauth-use-oob-p
+      (gcal-oauth-get-authorization-code-oob auth-url client-id scope)
+    (gcal-oauth-get-authorization-code-loopback auth-url client-id scope)))
+
+(defun gcal-oauth-get-authorization-code-oob (auth-url client-id scope)
+  "ブラウザを開いてユーザに認証してもらい、認証コードを受け付けます。"
+  (let ((redirect-uri "urn:ietf:wg:oauth:2.0:oob"))
+    (browse-url
+     (gcal-http-make-query-url
+      auth-url
+      `(("client_id" . ,client-id)
+        ("response_type" . "code")
+        ("redirect_uri" . ,redirect-uri)
+        ("scope" . ,scope))))
+    (cons
+     (read-string "Enter the code your browser displayed: ")
+     redirect-uri)))
 
 (defun gcal-oauth-get-refreshed-token (refresh-token token-url client-id client-secret)
   "リフレッシュされたアクセストークンを取得します。JSONをリストへ変換したもので返します。"
@@ -305,7 +321,6 @@ gcal-oauth-tokenオブジェクトを返します。
     `(
       ("client_id" . ,client-id)
       ("client_secret" . ,client-secret)
-      ("redirect_uri" . "urn:ietf:wg:oauth:2.0:oob")
       ("grant_type" . "refresh_token")
       ("refresh_token" . ,refresh-token)))
    "refresh"))
@@ -347,6 +362,175 @@ gcal-oauth-tokenオブジェクトを返します。
         (with-temp-buffer
           (insert-file-contents file)
           (read (buffer-string))))))
+
+;; OAuth Local Server (For Loopback IP Address Flow)
+
+(defun gcal-oauth-local-server-start ()
+  (make-network-process
+   :name "gcal-oauth-local-server"
+   :server t
+   :host 'local
+   :service t
+   :family 'ipv4
+   :coding 'binary
+   :filter 'gcal-oauth-local-server-filter
+   :log 'gcal-oauth-local-server-log))
+
+(defun gcal-oauth-local-server-stop (proc)
+  (when (process-status proc)
+    (delete-process proc)
+    ;;(message "Stop local server.")
+    ))
+
+(defun gcal-oauth-local-server-log (server proc message)
+  ;;(message "Log: %s" message)
+  (gcal-oauth-local-server-connect server proc message))
+
+(defun gcal-oauth-local-server-sentinel (proc message)
+  ;;(message "Sentinel: %s" message)
+  (unless (string-match-p "^open " message)
+    (gcal-oauth-local-server-disconnect proc message)))
+
+(defun gcal-oauth-local-server-connect (server proc _message)
+  (unless (process-get proc :gcal-oauth-connect-p)
+    (process-put proc :gcal-oauth-connect-p t)
+    (process-put proc :gcal-oauth-request-buffer (generate-new-buffer " *gcal-oauth-request*"))
+    (process-put proc :gcal-oauth-server-proc server)
+    (set-process-sentinel proc #'gcal-oauth-local-server-sentinel)
+    ;;(message "Connect")
+    ))
+
+(defun gcal-oauth-local-server-disconnect (proc _message)
+  (when (process-put proc :gcal-oauth-connect-p t)
+    (process-put proc :gcal-oauth-connect-p nil)
+    (let ((buffer (process-get proc :gcal-oauth-request-buffer))
+          (server (process-get proc :gcal-oauth-server-proc))
+          (result (process-get proc :gcal-oauth-result)))
+      (kill-buffer buffer)
+
+      (when (and result
+                 (null (process-get server :gcal-oauth-post-result-p)))
+        (process-put server :gcal-oauth-post-result-p t)
+        (gcal-oauth-local-server-post-result result)))
+
+    ;;(message "Disconnect")
+    ))
+
+(defun gcal-oauth-local-server-post-result (result)
+  (push (cons t (list 'gcal-oauth-local-server-quit result))
+        unread-command-events))
+
+(defun gcal-oauth-local-server-wait-for-result ()
+  (let (result)
+    (while (null result)
+      (let ((event (read-event)))
+        (when (and (listp event)
+                   (eq (car event) 'gcal-oauth-local-server-quit))
+          (setq result (cadr event)))))
+    result))
+
+(defun gcal-oauth-local-server-filter (proc string)
+  ;;(message "Filter: %s (%schars)" (truncate-string-to-width string 20) (length string))
+  (with-current-buffer (process-get proc :gcal-oauth-request-buffer)
+    (goto-char (point-max))
+    (save-excursion
+      (insert string))
+    (when (re-search-forward "\r\n\r\n" nil t)
+      ;;@todo Wait for content
+      (unless (process-get proc :gcal-oauth-finish-p)
+        (process-put proc :gcal-oauth-finish-p t)
+        (goto-char (point-min))
+        (let* ((request (gcal-oauth-local-server-parse-request-before-content))
+               (method (alist-get :method request))
+               ;;(headers (alist-get :headers request))
+               (path (alist-get :path request))
+               (args (alist-get :query-args request)))
+          (pcase path
+            ("/"
+             (pcase method
+               ("GET"
+                (process-put proc :gcal-oauth-result args)
+                (gcal-oauth-local-server-send-response proc 200 "OK"))
+               ;;@todo ("POST" ...)
+               (_
+                (gcal-oauth-local-server-send-response proc 405 "Method Not Allowed"))))
+            (_
+             (gcal-oauth-local-server-send-response proc 404 "Not Found"))))
+        (process-send-eof proc)))))
+
+(defun gcal-oauth-local-server-parse-request-before-content ()
+  ;;(goto-char (point-min))
+  (let* ((method-url (gcal-oauth-local-server-parse-start-line))
+         (method (nth 0 method-url))
+         (url (nth 1 method-url))
+         (headers (gcal-oauth-local-server-parse-headers))
+         (path-and-query (url-path-and-query (url-generic-parse-url url)))
+         (path (car path-and-query))
+         (query (cdr path-and-query))
+         (args (when query (url-parse-query-string query))))
+    (list
+     (cons :method method)
+     (cons :url url)
+     (cons :path path)
+     (cons :query query)
+     (cons :query-args args)
+     (cons :headers headers))))
+
+(defun gcal-oauth-local-server-parse-start-line ()
+  ;;(goto-char (point-min))
+  (unless (looking-at "^\\([A-Z]+\\) *\\([^ ]+\\) *HTTP/[0-9]+\\.[0-9]+\r\n")
+    (error "Invalid HTTP Request"))
+  (goto-char (match-end 0))
+  (let ((method (match-string 1))
+        (url (match-string 2))
+        ;;(http-version (match-string 3))
+        )
+    (list method url)))
+
+(defun gcal-oauth-local-server-parse-headers ()
+  (let (headers)
+    (while (not (looking-at "\r\n"))
+      (if (looking-at "^\\([^:]+\\): \\(.*\\)\r\n")
+          (push (cons (match-string 1) (match-string 2)) headers))
+      (forward-line))
+    headers))
+
+(defun gcal-oauth-local-server-send-response (proc code message)
+  (process-send-string
+   proc
+   (format
+    "HTTP/1.1 %s %s\r\nContent-Type: text/plain\r\nContent-Length: %s\r\n\r\n%s"
+    code message
+    (length message)
+    message)))
+
+(defun gcal-oauth-get-authorization-code-loopback (auth-url client-id scope)
+  (let* ((proc (gcal-oauth-local-server-start))
+         (host-port (process-contact proc))
+         (port (cadr host-port))
+         (redirect-uri (format "http://127.0.0.1:%s" port)))
+    (unwind-protect
+        (progn
+          (browse-url
+           (gcal-http-make-query-url
+            auth-url
+            `(("client_id" . ,client-id)
+              ("response_type" . "code")
+              ("redirect_uri" . ,redirect-uri)
+              ("scope" . ,scope))))
+          (message "Please approve the authority on the consent screen displayed in your browser.")
+          (let* ((result (gcal-oauth-local-server-wait-for-result))
+                 (err (cadr (assoc "error" result)))
+                 (code (cadr (assoc "code" result))))
+            (when err
+              (message "Error: %s" err)
+              (error "Error: %s" err))
+            (unless code
+              (message "No auth code")
+              (error "No auth code"))
+            (cons code redirect-uri)))
+
+      (gcal-oauth-local-server-stop proc))))
 
 
 
