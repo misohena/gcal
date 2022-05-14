@@ -49,30 +49,25 @@
 ;;
 
 ;;; Code:
+
 (require 'url)
 (require 'url-util)
 (require 'json)
 (require 'parse-time)
 
-(defcustom gcal-client-id ""
-  "client-id for Google Calendar API"
-  :group 'gcal :type 'string)
 
-(defcustom gcal-client-secret ""
-  "client-secret for Google Calendar API"
-  :group 'gcal :type 'string)
 
-(defconst gcal-auth-url "https://accounts.google.com/o/oauth2/auth")
-(defconst gcal-token-url "https://www.googleapis.com/oauth2/v3/token")
-(defconst gcal-scope-url "https://www.googleapis.com/auth/calendar")
-
-;; HTTP
+;;
+;; Send HTTP Request
+;;
 
 (defun gcal-http (method url params headers data)
+  "Send a HTTP Request."
   (let* ((url-request-method (or method "GET"))
          (url-request-extra-headers headers)
          (url-request-data data)
-         (buffer (url-retrieve-synchronously (gcal-http-make-query-url url params))))
+         (buffer (url-retrieve-synchronously
+                  (gcal-http-make-query-url url params))))
     (unwind-protect
         (gcal-parse-http-response buffer)
       (kill-buffer buffer))))
@@ -183,18 +178,43 @@ json-read-from-string)."
 ;; OAuth
 ;; (この部分は一応Google Calendar以外でも使い回せるように作っています)
 ;;
-;; Example: (setq token (gcal-oauth-get nil "https://accounts.google.com/o/oauth2/auth" "https://www.googleapis.com/oauth2/v3/token" "xxx.apps.googleusercontent.com" "secret_xxx" "https://www.googleapis.com/auth/calendar"))
-;; Example: (gcal-oauth-token-access token)
-;; Example: (gcal-oauth-token-expires token)
-;; Example: (gcal-oauth-token-refresh token)
-;; Example: (gcal-oauth-token-url token)
-;; Example: (gcal-oauth-auth "https://accounts.google.com/o/oauth2/auth" "https://www.googleapis.com/oauth2/v3/token" "xxx.apps.googleusercontent.com" "secret_xxx" "https://www.googleapis.com/auth/calendar"))
-;; Example: (gcal-oauth-refresh token "xxxx" "xxxx")
+;; Example:
+;; (defvar example-token nil)
+;; (setq example-token
+;;       (gcal-oauth-get
+;;         example-token
+;;         "https://accounts.google.com/o/oauth2/auth"
+;;         "https://www.googleapis.com/oauth2/v3/token"
+;;         "xxx.apps.googleusercontent.com"
+;;         "secret_xxx"
+;;         "https://www.googleapis.com/auth/calendar"
+;;         "~/.gcal-token"))
+;;
+;; (gcal-oauth-token-access example-token) ;;Access Token
+;; (gcal-oauth-token-expires example-token) ;;Expiration Time
+;; (gcal-oauth-token-refresh example-token) ;;Refresh Token
+;; (gcal-oauth-token-expired-p example-token)
 
-(cl-defstruct gcal-oauth-token access expires refresh url)
+;; Example:
+;; (setq token
+;;       (gcal-oauth-auth
+;;         "https://accounts.google.com/o/oauth2/auth"
+;;         "https://www.googleapis.com/oauth2/v3/token"
+;;         "xxx.apps.googleusercontent.com"
+;;         "secret_xxx"
+;;         "https://www.googleapis.com/auth/calendar"))
 
-(defun gcal-oauth-get (token auth-url token-url client-id client-secret scope token-file)
-  "アクセストークンを取得します。必要なら認証やリフレッシュを行います。"
+;; Example:
+;; (gcal-oauth-refresh
+;;   token "xxxx" "xxxx" "https://www.googleapis.com/oauth2/v3/token")
+
+(cl-defstruct gcal-oauth-token access expires refresh url-unused)
+
+(defun gcal-oauth-get (token
+                       auth-url token-url client-id client-secret scope
+                       token-file &optional force-refresh-p)
+  "アクセストークンを取得します。
+必要ならファイルの読み込みや認証、リフレッシュを行います。"
 
   (if (or (null client-id) (string-empty-p client-id))
       (error "client-id is not specified"))
@@ -207,7 +227,8 @@ json-read-from-string)."
 
   ;; refresh token
   (when (and token
-             (gcal-oauth-token-expired-p token))
+             (or force-refresh-p
+                 (gcal-oauth-token-expired-p token)))
     (setq token (gcal-oauth-refresh token client-id client-secret token-url))
     (gcal-oauth-save-token token-file token)) ;; save token if not null
 
@@ -229,41 +250,42 @@ json-read-from-string)."
 gcal-oauth-tokenオブジェクトを返します。
 
 失敗したらnilを返します。"
-  (when-let ((response (gcal-oauth-get-access-token
+  (when-let ((response (gcal-oauth-auth--retrieve
                         auth-url token-url client-id client-secret scope)))
-    (let* ((access-token (cdr (assq 'access_token response)))
-           (expires-in (cdr (assq 'expires_in response)))
-           (refresh-token (cdr (assq 'refresh_token response)))
-           (expires-at
-            (if expires-in
-                (time-add (current-time) (seconds-to-time expires-in))
-              nil)))
-      (make-gcal-oauth-token
-       :access access-token
-       :expires expires-at
-       :refresh refresh-token
-       :url token-url))))
+    (make-gcal-oauth-token
+     :access (alist-get 'access_token response)
+     :expires (gcal-oauth-response-expires-at response)
+     :refresh (alist-get 'refresh_token response))))
 
-(defun gcal-oauth-refresh (token client-id client-secret &optional token-url)
+(defun gcal-oauth-refresh (token client-id client-secret token-url)
   "gcal-oauth-tokenオブジェクトのアクセストークンをリフレッシュします。
 
 アクセストークンと期限を更新したTOKENを返します。
 
 リフレッシュに失敗したらnilを返します。"
-  (when-let ((response (gcal-oauth-get-refreshed-token
+  (when-let ((response (gcal-oauth-refresh--retrieve
                         (gcal-oauth-token-refresh token)
-                        (or token-url (gcal-oauth-token-url token))
+                        token-url
                         client-id
                         client-secret)))
-    (let* ((access-token (cdr (assq 'access_token response)))
-           (expires-in (cdr (assq 'expires_in response)))
-           (expires-at
-            (if expires-in
-                (time-add (current-time) (seconds-to-time expires-in))
-              nil)))
-      (setf (gcal-oauth-token-access token) access-token)
-      (setf (gcal-oauth-token-expires token) expires-at)
-      token)))
+    (setf (gcal-oauth-token-access token)
+          (alist-get 'access_token response))
+    (setf (gcal-oauth-token-expires token)
+          (gcal-oauth-response-expires-at response))
+    token))
+
+;; Expiration Time
+
+(defun gcal-oauth-response-expires-at (response)
+  "RESPONSEからトークンの失効時刻を求めます。
+
+RESPONSEは(current-time)に取得したものと仮定します。"
+  (let* ((expires-in (alist-get 'expires_in response))
+         (expires-at
+          (if expires-in
+              (time-add (current-time) (seconds-to-time expires-in))
+            nil)))
+    expires-at))
 
 (defun gcal-oauth-token-expired-p (token)
   "アクセストークンが期限切れになっているならtを返します。"
@@ -272,23 +294,86 @@ gcal-oauth-tokenオブジェクトを返します。
    (gcal-oauth-token-expires token) ;;not null
    (time-less-p (gcal-oauth-token-expires token) (current-time))))
 
-   ;; implementation details
-(defun gcal-oauth-get-access-token (auth-url token-url client-id client-secret scope)
+;; Token File I/O
+
+(defun gcal-oauth-save-token (file token)
+  (if (and file token)
+      (with-temp-file file
+        (pp token (current-buffer)))))
+
+(defun gcal-oauth-load-token (file)
+  (if (and file (file-exists-p file))
+      (ignore-errors
+        (with-temp-buffer
+          (insert-file-contents file)
+          (read (buffer-string))))))
+
+;; Retrieve Token
+
+(defun gcal-oauth-auth--retrieve (auth-url
+                                  token-url client-id client-secret scope)
   "アクセストークンを取得します。JSONをリストへ変換したもので返します。"
-  (let* ((auth-code-and-uri
-          (gcal-oauth-get-authorization-code auth-url client-id scope))
-         (code (car auth-code-and-uri))
-         (redirect-uri (cdr auth-code-and-uri)))
-    (gcal-oauth-check-access-token-response
-     (gcal-retrieve-json-post-www-form
-      token-url
-      `(
-        ("client_id" . ,client-id)
-        ("client_secret" . ,client-secret)
-        ("redirect_uri" . ,redirect-uri)
-        ("grant_type" . "authorization_code")
-        ("code" . ,code)))
-     "get")))
+  (gcal-oauth-retrieve-token
+   token-url
+   (let* ((auth-code-and-uri
+           (gcal-oauth-get-authorization-code auth-url client-id scope))
+          (code (car auth-code-and-uri))
+          (redirect-uri (cdr auth-code-and-uri)))
+     `(
+       ("client_id" . ,client-id)
+       ("client_secret" . ,client-secret)
+       ("redirect_uri" . ,redirect-uri)
+       ("grant_type" . "authorization_code")
+       ("code" . ,code)))
+   "get"))
+
+(defun gcal-oauth-refresh--retrieve (refresh-token
+                                     token-url client-id client-secret)
+  "リフレッシュされたアクセストークンを取得します。
+JSONをリストへ変換したもので返します。"
+  (gcal-oauth-retrieve-token
+   token-url
+   `(
+     ("client_id" . ,client-id)
+     ("client_secret" . ,client-secret)
+     ("grant_type" . "refresh_token")
+     ("refresh_token" . ,refresh-token))
+   "refresh"))
+
+(defun gcal-oauth-retrieve-token (token-url params operation)
+  (gcal-oauth-check-access-token-response
+   (gcal-retrieve-json-post-www-form
+    token-url
+    params)
+   operation))
+
+(defun gcal-oauth-check-access-token-response (response operation)
+  "アクセストークン取得(またはリフレッシュ)のRESPONSEをチェックします。
+
+問題があればエラーメッセージを表示してnilを返します。問題が無けれ
+ばRESPONSEをそのまま返します。"
+  ;;(message "%s access token response = %s" operation response)
+
+  (let ((err          (alist-get 'error response))
+        (err-desc     (alist-get 'error_description response))
+        (access-token (alist-get 'access_token response)))
+    (cond
+     ;; Error
+     (err
+      (message "Failed to %s access token (err=%s description=%s)"
+               operation err err-desc)
+      nil)
+
+     ;; Not contains access_token
+     ((null access-token)
+      (message "Failed to %s access token (response=%s)"
+               operation response)
+      nil)
+
+     ;; Succeeded
+     (t response))))
+
+;; Authorization Code
 
 (defvar gcal-oauth-use-oob-p nil
   "When t, use deprecated OAuth Out of Bound (OOB) Flow.")
@@ -312,56 +397,6 @@ gcal-oauth-tokenオブジェクトを返します。
     (cons
      (read-string "Enter the code your browser displayed: ")
      redirect-uri)))
-
-(defun gcal-oauth-get-refreshed-token (refresh-token token-url client-id client-secret)
-  "リフレッシュされたアクセストークンを取得します。JSONをリストへ変換したもので返します。"
-  (gcal-oauth-check-access-token-response
-   (gcal-retrieve-json-post-www-form
-    token-url
-    `(
-      ("client_id" . ,client-id)
-      ("client_secret" . ,client-secret)
-      ("grant_type" . "refresh_token")
-      ("refresh_token" . ,refresh-token)))
-   "refresh"))
-
-(defun gcal-oauth-check-access-token-response (response operation)
-  "アクセストークン取得(またはリフレッシュ)のRESPONSEをチェックします。
-
-問題があればエラーメッセージを表示してnilを返します。問題が無けれ
-ばRESPONSEをそのまま返します。"
-  ;;(message "%s access token response = %s" operation response)
-
-  (let ((err (cdr (assq 'error response)))
-        (err-desc (cdr (assq 'error_description response)))
-        (access-token (cdr (assq 'access_token response))))
-    (cond
-     ;; Error
-     (err
-      (message "Failed to %s access token (err=%s description=%s)"
-               operation err err-desc)
-      nil)
-
-     ;; Not contains access_token
-     ((null access-token)
-      (message "Failed to %s access token (response=%s)"
-               operation response)
-      nil)
-
-     ;; Succeeded
-     (t response))))
-
-(defun gcal-oauth-save-token (file token)
-  (if (and file token)
-      (with-temp-file file
-        (pp token (current-buffer)))))
-
-(defun gcal-oauth-load-token (file)
-  (if (and file (file-exists-p file))
-      (ignore-errors
-        (with-temp-buffer
-          (insert-file-contents file)
-          (read (buffer-string))))))
 
 ;; OAuth Local Server (For Loopback IP Address Flow)
 
@@ -545,6 +580,18 @@ gcal-oauth-tokenオブジェクトを返します。
   :group 'gcal
   :type 'file)
 
+(defcustom gcal-client-id ""
+  "client-id for Google Calendar API"
+  :group 'gcal :type 'string)
+
+(defcustom gcal-client-secret ""
+  "client-secret for Google Calendar API"
+  :group 'gcal :type 'string)
+
+(defconst gcal-auth-url "https://accounts.google.com/o/oauth2/auth")
+(defconst gcal-token-url "https://www.googleapis.com/oauth2/v3/token")
+(defconst gcal-scope-url "https://www.googleapis.com/auth/calendar")
+
 (defvar gcal-access-token nil)
 
 (defun gcal-access-token ()
@@ -593,6 +640,18 @@ gcal-oauth-tokenオブジェクトを返します。
 ;;
 ;; API Wrapper
 ;;
+
+  ;; API Error
+
+(defun gcal-get-error-code (response-json)
+  (if (listp response-json)
+      (cdr (assq 'code (cdr (assq 'error response-json))))))
+
+(defun gcal-succeeded-p (response-json)
+  (null (gcal-get-error-code response-json)))
+
+(defun gcal-failed-p (response-json)
+  (not (null (gcal-get-error-code response-json))))
 
   ;; CalendarList
 
@@ -745,25 +804,6 @@ ex: ((dateTime . \"2009-10-25T11:00:54+09:00\"))
       (let ((datetime (gcal-gtime-date-time-str gtime)))
         (if (stringp datetime)
             (gcal-time-parse datetime))))))
-
-
-
-
-
-
-;;
-;; Utilities
-;;
-
-(defun gcal-get-error-code (response-json)
-  (if (listp response-json)
-      (cdr (assq 'code (cdr (assq 'error response-json))))))
-
-(defun gcal-succeeded-p (response-json)
-  (null (gcal-get-error-code response-json)))
-
-(defun gcal-failed-p (response-json)
-  (not (null (gcal-get-error-code response-json))))
 
 
 
