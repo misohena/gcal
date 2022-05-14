@@ -443,6 +443,7 @@ JSONをリストへ変換したもので返します。"
           (result (process-get proc :gcal-oauth-result)))
       (kill-buffer buffer)
 
+      ;;(message "Result=%s" result)
       (when (and result
                  (null (process-get server :gcal-oauth-post-result-p)))
         (process-put server :gcal-oauth-post-result-p t)
@@ -465,36 +466,76 @@ JSONをリストへ変換したもので返します。"
     result))
 
 (defun gcal-oauth-local-server-filter (proc string)
-  ;;(message "Filter: %s (%schars)" (truncate-string-to-width string 20) (length string))
+  ;;(message "Filter: --\n%s\n--\n(%schars)"
+  ;;         string ;;(truncate-string-to-width string 20)
+  ;;         (length string))
   (with-current-buffer (process-get proc :gcal-oauth-request-buffer)
     (goto-char (point-max))
     (save-excursion
       (insert string))
-    (when (re-search-forward "\r\n\r\n" nil t)
-      ;;@todo Wait for content
-      (unless (process-get proc :gcal-oauth-finish-p)
-        (process-put proc :gcal-oauth-finish-p t)
-        (goto-char (point-min))
-        (let* ((request (gcal-oauth-local-server-parse-request-before-content))
-               (method (alist-get :method request))
-               ;;(headers (alist-get :headers request))
-               (path (alist-get :path request))
-               (args (alist-get :query-args request)))
-          (pcase path
-            ("/"
-             (pcase method
-               ("GET"
-                (process-put proc :gcal-oauth-result args)
-                (gcal-oauth-local-server-send-response proc 200 "OK"))
-               ;;@todo ("POST" ...)
-               (_
-                (gcal-oauth-local-server-send-response proc 405 "Method Not Allowed"))))
-            (_
-             (gcal-oauth-local-server-send-response proc 404 "Not Found"))))
+
+    (let ((request (process-get proc :gcal-oauth-request)))
+
+      ;; Reach the end of headers
+      (when (and (null request)
+                 (re-search-forward "\r\n\r\n" nil t));;Reach the end of headers
+        ;; Parse & delete start line and headers and separator(blank line)
+        (setq request (gcal-oauth-local-server-parse-request-before-content))
+        (process-put proc :gcal-oauth-request request))
+
+      ;; Reach the end of content
+      (when (and request ;;Headers already parsed
+                 (null (alist-get :content request));;No content yet
+                 (>= (buffer-size)
+                     (alist-get :content-length request)));;Reach the end of content
+        ;; Push the content to the end of the request list
+        (nconc request
+               (list
+                (cons
+                 :content
+                 (buffer-substring
+                  (point-min)
+                  (+ (point-min) (alist-get :content-length request))))))
+
+        ;; Make response and post result
+        (gcal-oauth-local-server-execute-request proc request)
+
+        ;; Disconnect
         (process-send-eof proc)))))
 
+(defun gcal-oauth-local-server-execute-request (proc request)
+  (let ((content (alist-get :content request))
+        (method (alist-get :method request))
+        (headers (alist-get :headers request))
+        (path (alist-get :path request)))
+    (pcase path
+      ("/"
+       (pcase method
+         ("GET"
+          (process-put proc
+                       :gcal-oauth-result
+                       (alist-get :query-args request))
+          (gcal-oauth-local-server-send-response proc 200 "OK"))
+         ("POST"
+          (cond
+           ((string=
+             (alist-get "Content-Type" headers "" nil #'equal)
+             "application/x-www-form-urlencoded")
+            (process-put proc
+                         :gcal-oauth-result
+                         (url-parse-query-string content))
+            (gcal-oauth-local-server-send-response proc 200 "OK"))
+           (t
+            (gcal-oauth-local-server-send-response
+             proc 415 "Unsupported Media Type"))))
+         (_
+          (gcal-oauth-local-server-send-response
+           proc 405 "Method Not Allowed"))))
+      (_
+       (gcal-oauth-local-server-send-response proc 404 "Not Found")))))
+
 (defun gcal-oauth-local-server-parse-request-before-content ()
-  ;;(goto-char (point-min))
+  (goto-char (point-min))
   (let* ((method-url (gcal-oauth-local-server-parse-start-line))
          (method (nth 0 method-url))
          (url (nth 1 method-url))
@@ -502,14 +543,21 @@ JSONをリストへ変換したもので返します。"
          (path-and-query (url-path-and-query (url-generic-parse-url url)))
          (path (car path-and-query))
          (query (cdr path-and-query))
-         (args (when query (url-parse-query-string query))))
+         (args (when query (url-parse-query-string query)))
+         (content-length (string-to-number
+                          (alist-get
+                           "Content-Length" headers "0" nil #'equal))))
+    ;; Delete string before content
+    (delete-region (point-min) (point))
+
     (list
      (cons :method method)
      (cons :url url)
      (cons :path path)
      (cons :query query)
      (cons :query-args args)
-     (cons :headers headers))))
+     (cons :headers headers)
+     (cons :content-length content-length))))
 
 (defun gcal-oauth-local-server-parse-start-line ()
   ;;(goto-char (point-min))
@@ -528,6 +576,7 @@ JSONをリストへ変換したもので返します。"
       (if (looking-at "^\\([^:]+\\): \\(.*\\)\r\n")
           (push (cons (match-string 1) (match-string 2)) headers))
       (forward-line))
+    (goto-char (match-end 0)) ;;move to after \r\n (at beginning of content)
     headers))
 
 (defun gcal-oauth-local-server-send-response (proc code message)
