@@ -143,6 +143,9 @@
   (save-excursion
     ;; update invisible text properties for the entire buffer
     (when gcal-org-remove-invisible-text-from-summary
+      ;;@todo use org-fold-core-save-visibility?
+      (when (fboundp 'org-fold-show-all) ;;Org 9.6
+        (org-fold-show-all))
       (font-lock-ensure))
 
     (goto-char (point-min))
