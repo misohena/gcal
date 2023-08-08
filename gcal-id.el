@@ -24,6 +24,8 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+
 (defvar gcal-base32hex-table "0123456789ABCDEFGHIJKLMNOPQRSTUV")
 
 (defun gcal-base32hex-p (string)
