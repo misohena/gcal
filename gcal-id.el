@@ -47,11 +47,11 @@
       (let* ((num (elt nums i))
              (dstbit (% (* i 5) 8)))
 
-        (setq last-byte (logior last-byte (lsh num (- 3 dstbit))))
+        (setq last-byte (logior last-byte (ash num (- 3 dstbit))))
 
         (when (>= dstbit 3)
           (push last-byte result)
-          (setq last-byte (logand (lsh num (- (+ 8 3) dstbit)) 255))))
+          (setq last-byte (logand (ash num (- (+ 8 3) dstbit)) 255))))
 
       (setq i (1+ i)))
 
@@ -69,9 +69,9 @@
     (while (< i string-len)
       (let* ((char (elt string i))
              (dstbit (% (* i 8) 5))
-             (left (logior (lsh char (- -3 dstbit)) last-byte))
-             (center (logand (lsh char (- 2 dstbit)) 31))
-             (right (logand (lsh char (- 7 dstbit)) 31)))
+             (left (logior (ash char (- -3 dstbit)) last-byte))
+             (center (logand (ash char (- 2 dstbit)) 31))
+             (right (logand (ash char (- 7 dstbit)) 31)))
         (push left result)
         (if (< dstbit 2)
             (setq last-byte center)
@@ -91,7 +91,7 @@
   (concat
    (cl-loop for (a b) on (mapcar (lambda (c) (string-to-number (string c) 16)) str)
             by #'cddr
-            collect (+ (lsh a 4) b))))
+            collect (+ (ash a 4) b))))
 
 (defun gcal-hexstr-from-bytes (bytes)
   (mapconcat (lambda (c) (format "%02x" c)) bytes ""))
