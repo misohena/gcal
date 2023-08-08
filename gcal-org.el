@@ -844,7 +844,7 @@ org-element-timestamp-parserの戻り値で取得します。日付の範囲表�
       (if (re-search-forward
            (format org-complex-heading-regexp-format (regexp-quote headline))
            nil t)
-          (goto-char (point-at-bol))
+          (goto-char (line-beginning-position))
         ;; insert new headline
         (goto-char (point-max))
         (if (not (bolp)) (insert "\n"))
