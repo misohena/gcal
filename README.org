@@ -19,19 +19,19 @@ Usege:
 
 ;; list events
 (gcal-events-list
- "example@gmail.com" ;;<- calendar-id
+ "example@group.calendar.google.com" ;; Calendar ID
   `((timeMin . ,(gcal-datetime 2016 5 1))
     (timeMax . ,(gcal-datetime 2016 6 1))))
 
 ;; insert event
 (gcal-events-insert
- "example@gmail.com"
+ "example@group.calendar.google.com"
  `((start . ,(gcal-gtime 2016 5 27))
    (end . ,(gcal-gtime 2016 5 28))
   (summary . "My Special Holiday")))
 
 ;; delete event
-(gcal-events-delete "example@gmail.com" "{event id}")
+(gcal-events-delete "example@group.calendar.google.com" "{event id}")
 #+END_SRC
 
 ** gcal-org.el
@@ -42,9 +42,19 @@ Usage:
 (require 'gcal-org)
 
 ;; Org to Google Calendar
-(gcal-org-push-file "example@gmail.com" "~/my-schedule.org") ;;use global cache file(~/.emacs.d/.gcal-org-pushed-events)
 
-(gcal-org-push-file "example@gmail.com" "~/my-schedule.org" "~/my-schedule.gcal-cache")
+(gcal-org-push-file
+ "example@group.calendar.google.com" ;; Calendar ID
+ "~/my-schedule.org" ;; Org file
+ "~/my-schedule.gcal-cache") ;; Cache file (If omitted, use the global cache file ~/.emacs.d/.gcal-org-pushed-events)
+
+;; Google Calendar to Org
+
+(gcal-org-pull-to-file
+ "example@group.calendar.google.com"
+ "~/my-schedule.org"
+ "Inbox"
+ "~/my-schedule.gcal-cache")
 #+END_SRC
 
 Parse org & Upload
@@ -57,19 +67,19 @@ Parse org & Upload
 
 ;; Upload oevents to Google Calendar
 (gcal-org-push-oevents
-  "example@gmail.com"
+  "example@group.calendar.google.com"
   (gcal-org-parse-file "~/my-schedule.org")
   nil)
 
 ;; Upload oevents to Google Calendar (delta)
 (gcal-org-push-oevents
-  "example@gmail.com"
+  "example@group.calendar.google.com"
   (gcal-org-parse-file "~/my-schedule.org")
   (gcal-org-parse-file "~/my-schedule.org.old"))
 
 ;; Delete events from Google Calendar
 (gcal-org-push-oevents
-  "example@gmail.com"
+  "example@group.calendar.google.com"
   nil
   (gcal-org-parse-file "~/my-schedule.org"))
 
@@ -80,7 +90,7 @@ Download
 #+BEGIN_SRC elisp
 ;; Download oevents from Goole Calendar
 (gcal-org-pull-oevents
- "example@gmail.com"
+ "example@group.calendar.google.com"
  `((timeMin . ,(gcal-time-format (current-time) nil)))) ;;after current time
 
 #+END_SRC
