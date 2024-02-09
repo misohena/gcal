@@ -77,28 +77,28 @@
   (with-current-buffer buffer
     ;; Response Line (ex: HTTP/1.1 200 OK)
     (goto-char (point-min))
-    (if (looking-at "^HTTP/[^ ]+ \\([0-9]+\\) ?\\(.*\\)$")
-        (let ((status (string-to-number (match-string 1)))
-              (message (match-string 2))
-              (headers)
-              (body))
-          (forward-line)
-          ;; Header Lines
-          (while (not (eolp))
-            (if (looking-at "^\\([^:]+\\): \\(.*\\)$")
-                (push (cons (match-string 1) (match-string 2)) headers))
-            (forward-line))
+    (when (looking-at "^HTTP/[^ ]+ \\([0-9]+\\) ?\\(.*\\)$")
+      (let ((status (string-to-number (match-string 1)))
+            (message (match-string 2))
+            (headers)
+            (body))
+        (forward-line)
+        ;; Header Lines
+        (while (not (eolp))
+          (if (looking-at "^\\([^:]+\\): \\(.*\\)$")
+              (push (cons (match-string 1) (match-string 2)) headers))
+          (forward-line))
 
-          ;; Body
-          (forward-line)
-          (setq body (buffer-substring (point) (point-max)))
+        ;; Body
+        (forward-line)
+        (setq body (buffer-substring (point) (point-max)))
 
-          ;; Result
-          ;;(push (cons ":Body" body) headers)
-          ;;(push (cons ":Status" status) headers)
-          ;;(push (cons ":Message" message) headers)
-          (list status message headers body)
-          ))))
+        ;; Result
+        ;;(push (cons ":Body" body) headers)
+        ;;(push (cons ":Status" status) headers)
+        ;;(push (cons ":Message" message) headers)
+        (list status message headers body)
+        ))))
 
 (defun gcal-http-get (url params)
   "Send GET request to url with params as query parameter."
@@ -216,13 +216,13 @@ json-read-from-string)."
   "アクセストークンを取得します。
 必要ならファイルの読み込みや認証、リフレッシュを行います。"
 
-  (if (or (null client-id) (string-empty-p client-id))
-      (error "client-id is not specified"))
-  (if (or (null client-secret) (string-empty-p client-secret))
-      (error "client-secret is not specified"))
+  (when (or (null client-id) (string-empty-p client-id))
+    (error "client-id is not specified"))
+  (when (or (null client-secret) (string-empty-p client-secret))
+    (error "client-secret is not specified"))
 
   ;; load from token-file
-  (when (null token)
+  (unless token
     (setq token (gcal-oauth-load-token token-file)))
 
   ;; refresh token
@@ -233,12 +233,12 @@ json-read-from-string)."
     (gcal-oauth-save-token token-file token)) ;; save token if not null
 
   ;; new token
-  (when (null token)
+  (unless token
     (setq token (gcal-oauth-auth auth-url token-url client-id client-secret scope))
     (gcal-oauth-save-token token-file token)) ;; save token if not null
 
   ;; failed
-  (when (null token)
+  (unless token
     (error "Failed to get access token"))
 
   ;; return token
@@ -297,16 +297,16 @@ RESPONSEは(current-time)に取得したものと仮定します。"
 ;; Token File I/O
 
 (defun gcal-oauth-save-token (file token)
-  (if (and file token)
-      (with-temp-file file
-        (pp token (current-buffer)))))
+  (when (and file token)
+    (with-temp-file file
+      (pp token (current-buffer)))))
 
 (defun gcal-oauth-load-token (file)
-  (if (and file (file-exists-p file))
-      (ignore-errors
-        (with-temp-buffer
-          (insert-file-contents file)
-          (read (buffer-string))))))
+  (when (and file (file-exists-p file))
+    (ignore-errors
+      (with-temp-buffer
+        (insert-file-contents file)
+        (read (buffer-string))))))
 
 ;; Retrieve Token
 
@@ -573,8 +573,8 @@ JSONをリストへ変換したもので返します。"
 (defun gcal-oauth-local-server-parse-headers ()
   (let (headers)
     (while (not (looking-at "\r\n"))
-      (if (looking-at "^\\([^:]+\\): \\(.*\\)\r\n")
-          (push (cons (match-string 1) (match-string 2)) headers))
+      (when (looking-at "^\\([^:]+\\): \\(.*\\)\r\n")
+        (push (cons (match-string 1) (match-string 2)) headers))
       (forward-line))
     (goto-char (match-end 0)) ;;move to after \r\n (at beginning of content)
     headers))
@@ -693,8 +693,8 @@ JSONをリストへ変換したもので返します。"
   ;; API Error
 
 (defun gcal-get-error-code (response-json)
-  (if (listp response-json)
-      (cdr (assq 'code (cdr (assq 'error response-json))))))
+  (when (listp response-json)
+    (cdr (assq 'code (cdr (assq 'error response-json))))))
 
 (defun gcal-succeeded-p (response-json)
   (null (gcal-get-error-code response-json)))
@@ -816,8 +816,8 @@ IANA Time Zone Database nameで指定します(例:Asia/Tokyo)。
     (cons
      (if date-only 'dateTime 'date)
      nil))
-   (if-let ((name (gcal-time-zone-name-default)))
-       (list (cons 'timeZone name)))))
+   (when-let ((name (gcal-time-zone-name-default)))
+     (list (cons 'timeZone name)))))
 
 
 (defun gcal-gtime (y m d &optional hh mm)
