@@ -1,4 +1,12 @@
 * Google Calendar Utilities for Emacs
+** Settings on Google server
+
+1. Access Google Cloud Console ( https://console.cloud.google.com/cloud-resource-manager ).
+2. Create a Project.
+3. Enable Google Calendar API.
+4. Create a OAuth Client ID (Choose *"Desktop"* type and Download client ID and client secret).
+5. Change publishing status to *"In production"* in OAuth Consent Screen.
+
 ** gcal.el
 
 Settings:
