@@ -643,13 +643,14 @@ JSONをリストへ変換したもので返します。"
 
 (defvar gcal-access-token nil)
 
-(defun gcal-access-token ()
+(defun gcal-access-token (&optional force-refresh-p)
   ;; get token
   (setq gcal-access-token (gcal-oauth-get gcal-access-token
                                           gcal-auth-url gcal-token-url
                                           gcal-client-id gcal-client-secret
                                           gcal-scope-url
-                                          gcal-token-file))
+                                          gcal-token-file
+                                          force-refresh-p))
   ;; return current token
   (gcal-oauth-token-access gcal-access-token))
 
