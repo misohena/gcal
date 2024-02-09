@@ -183,8 +183,8 @@ json-read-from-string)."
 ;; (setq example-token
 ;;       (gcal-oauth-get
 ;;         example-token
-;;         "https://accounts.google.com/o/oauth2/auth"
-;;         "https://www.googleapis.com/oauth2/v3/token"
+;;         "https://accounts.google.com/o/oauth2/v2/auth"
+;;         "https://oauth2.googleapis.com/token"
 ;;         "xxx.apps.googleusercontent.com"
 ;;         "secret_xxx"
 ;;         "https://www.googleapis.com/auth/calendar"
@@ -198,15 +198,15 @@ json-read-from-string)."
 ;; Example:
 ;; (setq token
 ;;       (gcal-oauth-auth
-;;         "https://accounts.google.com/o/oauth2/auth"
-;;         "https://www.googleapis.com/oauth2/v3/token"
+;;         "https://accounts.google.com/o/oauth2/v2/auth"
+;;         "https://oauth2.googleapis.com/token"
 ;;         "xxx.apps.googleusercontent.com"
 ;;         "secret_xxx"
 ;;         "https://www.googleapis.com/auth/calendar"))
 
 ;; Example:
 ;; (gcal-oauth-refresh
-;;   token "xxxx" "xxxx" "https://www.googleapis.com/oauth2/v3/token")
+;;   token "xxxx" "xxxx" "https://oauth2.googleapis.com/token")
 
 (cl-defstruct gcal-oauth-token access expires refresh url-unused)
 
@@ -637,8 +637,8 @@ JSONをリストへ変換したもので返します。"
   "client-secret for Google Calendar API"
   :group 'gcal :type 'string)
 
-(defconst gcal-auth-url "https://accounts.google.com/o/oauth2/auth")
-(defconst gcal-token-url "https://www.googleapis.com/oauth2/v3/token")
+(defconst gcal-auth-url "https://accounts.google.com/o/oauth2/v2/auth")
+(defconst gcal-token-url "https://oauth2.googleapis.com/token")
 (defconst gcal-scope-url "https://www.googleapis.com/auth/calendar")
 
 (defvar gcal-access-token nil)
