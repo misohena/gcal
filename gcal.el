@@ -175,6 +175,8 @@ json-read-from-string)."
 
 ;;
 ;; OAuth
+;;
+
 ;; (この部分は一応Google Calendar以外でも使い回せるように作っています)
 ;;
 ;; Example:
@@ -246,11 +248,9 @@ json-read-from-string)."
   token)
 
 (defun gcal-oauth-auth (auth-url token-url client-id client-secret scope)
-  "OAuthによりアクセストークンを取得します。
-
-gcal-oauth-tokenオブジェクトを返します。
-
-失敗したらnilを返します。"
+  "Get a new OAuth token.
+Returns a `gcal-oauth-token' object or nil on failure.
+Returns nil on failure."
   (when-let ((response (gcal-oauth-auth--retrieve
                         auth-url token-url client-id client-secret scope)))
     (gcal-oauth-token-make
@@ -259,11 +259,9 @@ gcal-oauth-tokenオブジェクトを返します。
      :refresh (alist-get 'refresh_token response))))
 
 (defun gcal-oauth-refresh (token client-id client-secret token-url)
-  "gcal-oauth-tokenオブジェクトのアクセストークンをリフレッシュします。
-
-アクセストークンと期限を更新したTOKENを返します。
-
-リフレッシュに失敗したらnilを返します。"
+  "Refresh `gcal-oauth-token' object TOKEN.
+Returns TOKEN with updated access token and expiration date.
+Returns nil if refresh fails."
   (when-let ((response (gcal-oauth-refresh--retrieve
                         (gcal-oauth-token-refresh token)
                         token-url
@@ -613,6 +611,7 @@ JSONをリストへ変換したもので返します。"
 ;;
 ;; Google Calendar OAuth
 ;;
+
 ;; Example: (gcal-access-token)
 
 (defcustom gcal-token-file
