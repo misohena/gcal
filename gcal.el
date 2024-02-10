@@ -207,7 +207,9 @@ json-read-from-string)."
 ;; (gcal-oauth-refresh
 ;;   token "xxxx" "xxxx" "https://oauth2.googleapis.com/token")
 
-(cl-defstruct gcal-oauth-token access expires refresh url-unused)
+(cl-defstruct (gcal-oauth-token
+               (:constructor gcal-oauth-token-make))
+  access expires refresh url-unused)
 
 (defun gcal-oauth-get (token
                        auth-url token-url client-id client-secret scope
@@ -251,7 +253,7 @@ gcal-oauth-tokenオブジェクトを返します。
 失敗したらnilを返します。"
   (when-let ((response (gcal-oauth-auth--retrieve
                         auth-url token-url client-id client-secret scope)))
-    (make-gcal-oauth-token
+    (gcal-oauth-token-make
      :access (alist-get 'access_token response)
      :expires (gcal-oauth-response-expires-at response)
      :refresh (alist-get 'refresh_token response))))
