@@ -182,14 +182,14 @@ json-read-from-string)."
 ;; Example:
 ;; (defvar example-token nil)
 ;; (setq example-token
-;;       (gcal-oauth-get
+;;       (gcal-oauth-token-get
 ;;         example-token
+;;         "~/.gcal-token"
 ;;         "https://accounts.google.com/o/oauth2/v2/auth"
 ;;         "https://oauth2.googleapis.com/token"
 ;;         "xxx.apps.googleusercontent.com"
 ;;         "secret_xxx"
-;;         "https://www.googleapis.com/auth/calendar"
-;;         "~/.gcal-token"))
+;;         "https://www.googleapis.com/auth/calendar"))
 ;;
 ;; (gcal-oauth-token-access example-token) ;;Access Token
 ;; (gcal-oauth-token-expires example-token) ;;Expiration Time
@@ -213,27 +213,35 @@ json-read-from-string)."
                (:constructor gcal-oauth-token-make))
   access expires refresh url-unused)
 
-(defun gcal-oauth-get (token
-                       auth-url token-url client-id client-secret scope
-                       token-file &optional force-refresh-p)
-  "アクセストークンを取得します。
-必要ならファイルの読み込みや認証、リフレッシュを行います。"
+(defun gcal-oauth-token-get (token token-file
+                             auth-url token-url client-id client-secret scope
+                             &optional force-update)
+  "Get an OAuth token.
+If necessary, load from TOKEN-FILE, authenticate, and refresh.
+
+FORCE-UPDATE specifies the TOKEN forced update method.
+Can be one of the following:
+- nil : Do not force updates.
+- reauth : Discard TOKEN and re-authenticate.
+- refresh : Refresh access token in TOKEN."
 
   (when (or (null client-id) (string-empty-p client-id))
     (error "client-id is not specified"))
   (when (or (null client-secret) (string-empty-p client-secret))
     (error "client-secret is not specified"))
 
-  ;; load from token-file
-  (unless token
-    (setq token (gcal-oauth-load-token token-file)))
+  (if (eq force-update 'reauth)
+      (setq token nil)
+    ;; load from token-file
+    (unless token
+      (setq token (gcal-oauth-load-token token-file)))
 
-  ;; refresh token
-  (when (and token
-             (or force-refresh-p
-                 (gcal-oauth-token-expired-p token)))
-    (setq token (gcal-oauth-refresh token client-id client-secret token-url))
-    (gcal-oauth-save-token token-file token)) ;; save token if not null
+    ;; refresh token
+    (when (and token
+               (or (eq force-update 'refresh)
+                   (gcal-oauth-token-expired-p token)))
+      (setq token (gcal-oauth-refresh token client-id client-secret token-url))
+      (gcal-oauth-save-token token-file token))) ;; save token if not null
 
   ;; new token
   (unless token
@@ -634,15 +642,26 @@ JSONをリストへ変換したもので返します。"
 
 (defvar gcal-access-token nil)
 
-(defun gcal-access-token (&optional force-refresh-p)
-  ;; get token
-  (setq gcal-access-token (gcal-oauth-get gcal-access-token
-                                          gcal-auth-url gcal-token-url
-                                          gcal-client-id gcal-client-secret
-                                          gcal-scope-url
-                                          gcal-token-file
-                                          force-refresh-p))
-  ;; return current token
+(defun gcal-access-token (&optional force-update)
+  "Return the default access token for the Google Calendar API.
+
+OAuth token is recorded in the `gcal-access-token' variable and
+the file pointed to by `gcal-token-file'. They will be updated as
+necessary.
+
+URLs and client information required for authentication are
+stored in variables `gcal-auth-url', `gcal-token-url',
+`gcal-scope-url', `gcal-client-id' and `gcal-client-secret'.
+
+See `gcal-oauth-token-get' for FORCE-UPDATE."
+  (setq gcal-access-token (gcal-oauth-token-get
+                           gcal-access-token
+                           gcal-token-file
+                           gcal-auth-url gcal-token-url
+                           gcal-client-id gcal-client-secret
+                           gcal-scope-url
+                           force-update))
+  ;; Return access token
   (gcal-oauth-token-access gcal-access-token))
 
 (defun gcal-access-token-params ()
