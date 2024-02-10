@@ -165,8 +165,8 @@ json-read-from-string)."
 
 (defun gcal-http-make-query-url (url params)
   "Build url with query string. (ex:http://example.com/?a=1&b=2&c=3)"
-  (let* ((query (gcal-http-make-query params)))
-    (if (> (length query) 0) (concat url "?" query) url)))
+  (let ((query (gcal-http-make-query params)))
+    (if (string-empty-p query) url (concat url "?" query))))
 
 
 
