@@ -57,9 +57,7 @@
 
 
 
-;;
-;; Send HTTP Request
-;;
+;;;; Process HTTP Request
 
 (defun gcal-http (method url params headers data)
   "Send a HTTP Request."
@@ -161,8 +159,7 @@ json-read-from-string)."
            "="
            (url-hexify-string (format "%s" value))))
         values
-        "&")
-     ))
+        "&")))
    params
    "&"))
 
@@ -173,11 +170,9 @@ json-read-from-string)."
 
 
 
-;;
-;; OAuth
-;;
+;;;; OAuth
 
-;; (この部分は一応Google Calendar以外でも使い回せるように作っています)
+;; (This part can be used other than Google Calendar)
 ;;
 ;; Example:
 ;; (defvar example-token nil)
@@ -284,9 +279,9 @@ Returns nil if refresh fails."
 ;; Expiration Time
 
 (defun gcal-oauth-response-expires-at (response)
-  "RESPONSEからトークンの失効時刻を求めます。
+  "Obtain the token expiration time from RESPONSE.
 
-RESPONSEは(current-time)に取得したものと仮定します。"
+Assume that RESPONSE was obtained at (current-time)."
   (let* ((expires-in (alist-get 'expires_in response))
          (expires-at
           (if expires-in
@@ -295,7 +290,7 @@ RESPONSEは(current-time)に取得したものと仮定します。"
     expires-at))
 
 (defun gcal-oauth-token-expired-p (token)
-  "アクセストークンが期限切れになっているならtを返します。"
+  "Return non-nil if the access token held by TOKEN has expired."
   (and
    token
    (gcal-oauth-token-expires token) ;;not null
@@ -319,7 +314,8 @@ RESPONSEは(current-time)に取得したものと仮定します。"
 
 (defun gcal-oauth-auth--retrieve (auth-url
                                   token-url client-id client-secret scope)
-  "アクセストークンを取得します。JSONをリストへ変換したもので返します。"
+  "Authenticate with OAuth and obtain an access token.
+Returns parsed JSON."
   (gcal-oauth-retrieve-token
    token-url
    (let* ((auth-code-and-uri
@@ -336,8 +332,8 @@ RESPONSEは(current-time)に取得したものと仮定します。"
 
 (defun gcal-oauth-refresh--retrieve (refresh-token
                                      token-url client-id client-secret)
-  "リフレッシュされたアクセストークンを取得します。
-JSONをリストへ変換したもので返します。"
+  "Refresh token.
+Returns parsed JSON."
   (gcal-oauth-retrieve-token
    token-url
    `(
@@ -355,10 +351,10 @@ JSONをリストへ変換したもので返します。"
    operation))
 
 (defun gcal-oauth-check-access-token-response (response operation)
-  "アクセストークン取得(またはリフレッシュ)のRESPONSEをチェックします。
+  "Check the RESPONSE of access token acquisition (or refresh).
 
-問題があればエラーメッセージを表示してnilを返します。問題が無けれ
-ばRESPONSEをそのまま返します。"
+If there is a problem, display an error message and return
+nil. If there is no problem, return RESPONSE as is."
   ;;(message "%s access token response = %s" operation response)
 
   (let ((err          (alist-get 'error response))
@@ -386,13 +382,13 @@ JSONをリストへ変換したもので返します。"
   "When t, use deprecated OAuth Out of Bound (OOB) Flow.")
 
 (defun gcal-oauth-get-authorization-code (auth-url client-id scope)
-  "ブラウザを開いてユーザに認証してもらい、認証コードを受け付けます。"
+  "Open a browser, ask the user to consent, and receive authorization code."
   (if gcal-oauth-use-oob-p
       (gcal-oauth-get-authorization-code-oob auth-url client-id scope)
     (gcal-oauth-get-authorization-code-loopback auth-url client-id scope)))
 
 (defun gcal-oauth-get-authorization-code-oob (auth-url client-id scope)
-  "ブラウザを開いてユーザに認証してもらい、認証コードを受け付けます。"
+  "Open a browser, ask the user to consent, and receive authorization code."
   (let ((redirect-uri "urn:ietf:wg:oauth:2.0:oob"))
     (browse-url
      (gcal-http-make-query-url
@@ -587,6 +583,7 @@ JSONをリストへ変換したもので返します。"
     message)))
 
 (defun gcal-oauth-get-authorization-code-loopback (auth-url client-id scope)
+  "Open a browser, ask the user to consent, and receive authorization code."
   (let* ((proc (gcal-oauth-local-server-start))
          (host-port (process-contact proc))
          (port (cadr host-port))
@@ -616,9 +613,7 @@ JSONをリストへ変換したもので返します。"
 
 
 
-;;
-;; Google Calendar OAuth
-;;
+;;;; Google Calendar OAuth
 
 ;; Example: (gcal-access-token)
 
@@ -671,9 +666,7 @@ See `gcal-oauth-token-get' for FORCE-UPDATE."
 
 
 
-;;
-;; API URL Builder
-;;
+;;;; API URL Builder
 
 (defconst gcal-calendar-url "https://www.googleapis.com/calendar/v3")
 
@@ -697,9 +690,8 @@ See `gcal-oauth-token-get' for FORCE-UPDATE."
    (if suffix2 (concat "/" suffix2))))
 
 
-;;
-;; API Wrapper
-;;
+
+;;;; API Wrapper
 
   ;; API Error
 
@@ -716,7 +708,9 @@ See `gcal-oauth-token-get' for FORCE-UPDATE."
   ;; CalendarList
 
 (defun gcal-calendar-list-list ()
-  "CalendarList: list"
+  "CalendarList: list
+
+URL `https://developers.google.com/calendar/api/v3/reference/calendarList/list'"
   (gcal-retrieve-json-get
    (gcal-calendar-list-url)
    (gcal-access-token-params)))
@@ -724,25 +718,33 @@ See `gcal-oauth-token-get' for FORCE-UPDATE."
   ;; Events
 
 (defun gcal-events-list (calendar-id &optional params)
-  "Events: list"
+  "Events: list
+
+URL `https://developers.google.com/calendar/api/v3/reference/events/list'"
   (gcal-retrieve-json-get
    (gcal-events-url calendar-id)
    (append (gcal-access-token-params) params)))
 
 (defun gcal-events-get (calendar-id event-id &optional params)
-  "Events: get"
+  "Events: get
+
+URL `https://developers.google.com/calendar/api/v3/reference/events/get'"
   (gcal-retrieve-json-get
    (gcal-events-url calendar-id event-id)
    (append (gcal-access-token-params) params)))
 
 (defun gcal-events-quick-add (calendar-id text &optional params)
-  "Events: quickAdd"
+  "Events: quickAdd
+
+URL `https://developers.google.com/calendar/api/v3/reference/events/quickAdd'"
   (gcal-retrieve-json-post-json
    (gcal-events-url calendar-id "quickAdd")
    (append (gcal-access-token-params) params `(("text" . ,text))) nil))
 
 (defun gcal-events-insert (calendar-id event-data &optional params)
   "Events: insert
+
+URL `https://developers.google.com/calendar/api/v3/reference/events/insert'
 
 Example:
 (gcal-events-insert
@@ -759,7 +761,9 @@ Example:
    event-data))
 
 (defun gcal-events-patch (calendar-id event-id event-data &optional params)
-  "Events: patch"
+  "Events: patch
+
+URL `https://developers.google.com/calendar/api/v3/reference/events/patch'"
   (gcal-retrieve-json-post-json
    (gcal-events-url calendar-id event-id)
    (append (gcal-access-token-params) params)
@@ -767,7 +771,9 @@ Example:
    "PATCH"))
 
 (defun gcal-events-update (calendar-id event-id event-data &optional params)
-  "Events: update"
+  "Events: update
+
+URL `https://developers.google.com/calendar/api/v3/reference/events/update'"
   (gcal-retrieve-json-post-json
    (gcal-events-url calendar-id event-id)
    (append (gcal-access-token-params) params)
@@ -775,7 +781,9 @@ Example:
    "PUT"))
 
 (defun gcal-events-delete (calendar-id event-id &optional params)
-  "Events: delete"
+  "Events: delete
+
+URL `https://developers.google.com/calendar/api/v3/reference/events/delete'"
   (gcal-retrieve-json
    "DELETE"
    (gcal-events-url calendar-id event-id)
@@ -783,8 +791,8 @@ Example:
 
 
 
-;;
-;; Time Utilities
+;;;; Time Utilities
+
 ;;
 ;; time = Emacs Internal Time
 ;;   (ex: (encode-time 0 0 0 31 4 2016) )
@@ -795,11 +803,12 @@ Example:
 ;;
 
 (defcustom gcal-time-zone-name-default nil
-  "デフォルトのタイムゾーン名です。
+  "Default time zone name.
 
-IANA Time Zone Database nameで指定します(例:Asia/Tokyo)。
+Specify by IANA Time Zone Database name (for example, Asia/Tokyo).
 
-単発のイベントのみ使う場合は省略可能ですが、繰り返しイベントに時刻を含めたいときは必須です。"
+This is optional if you only use one-time events, but it is
+required if you want to include time in repeated events."
   :group 'gcal :type '(choice (const nil) string))
 
 (defun gcal-time-zone-name-default ()
