@@ -104,7 +104,7 @@
   "Send GET request to url with params as query parameter."
   (gcal-http "GET" url params nil nil))
 
-(defun gcal-http-post-www-form (url params)
+(defun gcal-http-post-form (url params)
   "Send POST request(with x-www-form-url-encoded parms) to url."
   (gcal-http "POST" url nil
              '(("Content-Type" . "application/x-www-form-urlencoded"))
@@ -125,10 +125,10 @@
   "Send HTTP GET request and return parsed JSON object."
   (gcal-http-response-to-json (gcal-http-get url params)))
 
-(defun gcal-retrieve-json-post-www-form (url params)
+(defun gcal-retrieve-json-post-form (url params)
   "Send HTTP POST request(x-www-form-url-encoded) and return
 parsed JSON object."
-  (gcal-http-response-to-json (gcal-http-post-www-form url params)))
+  (gcal-http-response-to-json (gcal-http-post-form url params)))
 
 (defun gcal-retrieve-json-post-json (url params json-obj &optional method)
   "Send HTTP POST request(with encoded JSON string) and return
@@ -342,7 +342,7 @@ JSONをリストへ変換したもので返します。"
 
 (defun gcal-oauth-retrieve-token (token-url params operation)
   (gcal-oauth-check-access-token-response
-   (gcal-retrieve-json-post-www-form
+   (gcal-retrieve-json-post-form
     token-url
     params)
    operation))
