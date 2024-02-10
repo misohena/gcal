@@ -75,30 +75,29 @@
 (defun gcal-parse-http-response (buffer)
   "Parse HTTP response in buffer."
   (with-current-buffer buffer
-    ;; Response Line (ex: HTTP/1.1 200 OK)
     (goto-char (point-min))
+    ;; status-line (ex: HTTP/1.1 200 OK)
     (when (looking-at "^HTTP/[^ ]+ \\([0-9]+\\) ?\\(.*\\)$")
-      (let ((status (string-to-number (match-string 1)))
-            (message (match-string 2))
-            (headers)
-            (body))
-        (forward-line)
-        ;; Header Lines
-        (while (not (eolp))
-          (if (looking-at "^\\([^:]+\\): \\(.*\\)$")
-              (push (cons (match-string 1) (match-string 2)) headers))
-          (forward-line))
+      (forward-line)
+      (list
+       ;; status-code (integer)
+       (string-to-number (match-string 1))
+       ;; reason-phrase (should not be used)
+       nil
+       ;; header-field* (alist)
+       (gcal-parse-http-headers) ;; goto beginning of message-body
+       ;; message-body (string)
+       (buffer-substring (point) (point-max))))))
 
-        ;; Body
-        (forward-line)
-        (setq body (buffer-substring (point) (point-max)))
-
-        ;; Result
-        ;;(push (cons ":Body" body) headers)
-        ;;(push (cons ":Status" status) headers)
-        ;;(push (cons ":Message" message) headers)
-        (list status message headers body)
-        ))))
+(defun gcal-parse-http-headers ()
+  "Parse HTTP header fields in the current buffer."
+  (let (headers)
+    (while (not (looking-at "\\(?:\r\n\\|\n\\)"))
+      (when (looking-at "^\\([^:\r\n]+\\): \\([^\r\n]*\\)\\(?:\r\n\\|\n\\)")
+        (push (cons (match-string 1) (match-string 2)) headers))
+      (forward-line))
+    (goto-char (match-end 0)) ;;move to after \r\n (at beginning of content)
+    (nreverse headers)))
 
 (defun gcal-http-get (url params)
   "Send GET request to url with params as query parameter."
@@ -539,7 +538,7 @@ JSONをリストへ変換したもので返します。"
   (let* ((method-url (gcal-oauth-local-server-parse-start-line))
          (method (nth 0 method-url))
          (url (nth 1 method-url))
-         (headers (gcal-oauth-local-server-parse-headers))
+         (headers (gcal-parse-http-headers))
          (path-and-query (url-path-and-query (url-generic-parse-url url)))
          (path (car path-and-query))
          (query (cdr path-and-query))
@@ -569,15 +568,6 @@ JSONをリストへ変換したもので返します。"
         ;;(http-version (match-string 3))
         )
     (list method url)))
-
-(defun gcal-oauth-local-server-parse-headers ()
-  (let (headers)
-    (while (not (looking-at "\r\n"))
-      (when (looking-at "^\\([^:]+\\): \\(.*\\)\r\n")
-        (push (cons (match-string 1) (match-string 2)) headers))
-      (forward-line))
-    (goto-char (match-end 0)) ;;move to after \r\n (at beginning of content)
-    headers))
 
 (defun gcal-oauth-local-server-send-response (proc code message)
   (process-send-string
