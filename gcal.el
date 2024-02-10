@@ -674,20 +674,20 @@ See `gcal-oauth-token-get' for FORCE-UPDATE."
   (concat
    gcal-calendar-url
    "/users/me/calendarList"
-   (if calendar-id (concat "/" calendar-id))))
+   (and calendar-id (concat "/" calendar-id))))
 
 (defun gcal-calendars-url (&optional calendar-id suffix)
   (concat
    gcal-calendar-url
    "/calendars"
-   (if calendar-id (concat "/" calendar-id))
-   (if suffix (concat "/" suffix))))
+   (and calendar-id (concat "/" calendar-id))
+   (and suffix (concat "/" suffix))))
 
 (defun gcal-events-url (calendar-id &optional suffix1 suffix2)
   (concat
    (gcal-calendars-url calendar-id "events")
-   (if suffix1 (concat "/" suffix1))
-   (if suffix2 (concat "/" suffix2))))
+   (and suffix1 (concat "/" suffix1))
+   (and suffix2 (concat "/" suffix2))))
 
 
 
