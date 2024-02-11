@@ -356,7 +356,9 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 
 (defun gcal-org-push-file (calendar-id file &optional cache-file)
   (if cache-file
+      ;;[Async]
       (gcal-org-push-file-specified-cache calendar-id file cache-file)
+    ;;[Async]
     (gcal-org-push-file-global-cache calendar-id file)))
 
   ;; use specified cache-file
@@ -366,29 +368,35 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
          (old-events (gcal-ocalcache-oevents ocalcache))
          (new-events (gcal-org-parse-file file)))
 
-    (gcal-ocalcache-save
-     cache-file
-     (gcal-ocalcache-set-oevents
-      ocalcache
-      (gcal-org-push-oevents calendar-id new-events old-events)))))
+    (gcal-async-let ((oevents
+                      ;;[Async]
+                      (gcal-org-push-oevents calendar-id
+                                             new-events old-events)))
+      (gcal-ocalcache-save
+       cache-file
+       (gcal-ocalcache-set-oevents
+        ocalcache
+        oevents)))))
 
   ;; use global-cache(gcal-org-pushed-events-file)
 
 (defun gcal-org-push-file-global-cache (calendar-id file)
   (let* ((calfile-cache (gcal-org-pushed-events-cache calendar-id file))
-         (ocalcache (nth 1 calfile-cache))
-         (result-oevents (gcal-org-push-oevents
-                          calendar-id
-                          (gcal-org-parse-file file) ;;new events
-                          (gcal-ocalcache-oevents ocalcache)))) ;;old events
+         (ocalcache (nth 1 calfile-cache)))
+    (gcal-async-let ((result-oevents
+                      ;;[Async]
+                      (gcal-org-push-oevents
+                       calendar-id
+                       (gcal-org-parse-file file) ;;new events
+                       (gcal-ocalcache-oevents ocalcache)))) ;;old events
 
-    ;; update ocalcache
-    (setf (nth 1 calfile-cache)
-          (gcal-ocalcache-set-oevents ocalcache result-oevents))
+      ;; update ocalcache
+      (setf (nth 1 calfile-cache)
+            (gcal-ocalcache-set-oevents ocalcache result-oevents))
 
-    (gcal-org-pushed-events-save)
+      (gcal-org-pushed-events-save)
 
-    result-oevents))
+      result-oevents)))
 
 (defvar gcal-org-pushed-events nil)
 
@@ -457,36 +465,49 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 old-events will be destroyed."
   (let ((result-events))
 
-    (gcal-oevents-diff
-     old-events
-     new-events
-     ;;(lambda (old-oe new-oe) (insert (format "mod %s\n" (gcal-oevent-summary new-oe))))
-     ;;(lambda (new-oe) (insert (format "add %s\n" (gcal-oevent-summary new-oe))))
-     ;;(lambda (old-oe) (insert (format "del %s\n" (gcal-oevent-summary old-oe))))
-     ;;(lambda (old-oe) (insert (format "eq %s\n" (gcal-oevent-summary old-oe))))
-     ;; Change
-     (lambda (old-oe new-oe)
-       (setq result-events (gcal-org-push-oevents--check
-                            (gcal-oevent-patch calendar-id old-oe new-oe)
-                            new-oe old-oe result-events
-                            "update")))
-     ;; Add
-     (lambda (new-oe)
-       (setq result-events (gcal-org-push-oevents--check
-                            (gcal-org-push-oevents--insert calendar-id new-oe)
-                            new-oe nil result-events
-                            "insert")))
-     ;; Del
-     (lambda (old-oe)
-       (setq result-events (gcal-org-push-oevents--check
-                            (gcal-oevent-delete calendar-id old-oe)
-                            nil old-oe result-events
-                            "delete")))
-     ;; Not Change
-     (lambda (old-oe)
-       (push old-oe result-events))
-     )
-    (nreverse result-events)))
+    (gcal-async-wait-all
+        (gcal-oevents-diff
+         old-events
+         new-events
+         ;;(lambda (old-oe new-oe) (insert (format "mod %s\n" (gcal-oevent-summary new-oe))))
+         ;;(lambda (new-oe) (insert (format "add %s\n" (gcal-oevent-summary new-oe))))
+         ;;(lambda (old-oe) (insert (format "del %s\n" (gcal-oevent-summary old-oe))))
+         ;;(lambda (old-oe) (insert (format "eq %s\n" (gcal-oevent-summary old-oe))))
+         ;; Change
+         (lambda (old-oe new-oe)
+           (message "Change %s" (gcal-oevent-summary new-oe))
+           (gcal-async-let ((response
+                             ;;[Async]
+                             (gcal-oevent-patch calendar-id old-oe new-oe)))
+             (setq result-events (gcal-org-push-oevents--check
+                                  response
+                                  new-oe old-oe result-events
+                                  "update"))))
+         ;; Add
+         (lambda (new-oe)
+           (message "Add %s" (gcal-oevent-summary new-oe))
+           (gcal-async-let ((response
+                             ;;[Async]
+                             (gcal-org-push-oevents--insert calendar-id new-oe)))
+             (setq result-events (gcal-org-push-oevents--check
+                                  response
+                                  new-oe nil result-events
+                                  "insert"))))
+         ;; Del
+         (lambda (old-oe)
+           (message "Delete %s" (gcal-oevent-summary old-oe))
+           (gcal-async-let ((response
+                             ;;[Async]
+                             (gcal-oevent-delete calendar-id old-oe)))
+             (setq result-events (gcal-org-push-oevents--check
+                                  response
+                                  nil old-oe result-events
+                                  "delete"))))
+         ;; Not Change
+         (lambda (old-oe)
+           (push old-oe result-events))
+         )
+      (nreverse result-events))))
 
 (defun gcal-org-push-oevents--check (res succ-oe fail-oe result-events op)
   "Check response and add event to result-events list."
@@ -500,13 +521,19 @@ old-events will be destroyed."
     (if fail-oe (cons fail-oe result-events) result-events)))
 
 (defun gcal-org-push-oevents--insert (calendar-id new-oe)
-  (let* ((res (gcal-oevent-insert calendar-id new-oe))
-         (err (gcal-get-error-code res)))
-    ;; conflict (may be already pushed and deleted(status=cancelled))
-    (if (and (integerp err) (= err 409))
-        ;;@todo use patch?
-        (setq res (gcal-oevent-update calendar-id new-oe))
-      res)))
+  (gcal-async-let*
+      ((response-1
+        ;;[Async]
+        (gcal-oevent-insert calendar-id new-oe))
+       (response-2
+        (let ((err (gcal-get-error-code response-1)))
+          ;; conflict (may be already pushed and deleted(status=cancelled))
+          (if (and (integerp err) (= err 409))
+              ;;@todo use patch?
+              ;;[Async]
+              (gcal-oevent-update calendar-id new-oe)
+            response-1))))
+    response-2))
 
 
 
@@ -516,7 +543,9 @@ old-events will be destroyed."
 
 (defun gcal-org-pull-oevents (calendar-id &optional params)
   "Download calendar events as list of gcal-oevent."
-  (let ((gevents (gcal-events-list calendar-id params)))
+  (gcal-async-let ((gevents
+                    ;;[Async]
+                    (gcal-events-list calendar-id params)))
     (if (gcal-failed-p gevents)
         ;;@todo what to return?
         (message "error %s" gevents)
@@ -537,68 +566,71 @@ old-events will be destroyed."
   (let* (;;(cur-events (gcal-org-parse-file file))
          (ocalcache (gcal-ocalcache-load cache-file))
          (old-events (gcal-ocalcache-oevents ocalcache))
-         (gevents
-          (if (or (assq 'nextSyncToken params)
-                  full-sync)
-              ;; If nextSyncToken is specified, don't do anything extra
-              (gcal-events-list calendar-id params)
-            ;; Try using ocalcache's next-sync-token
-            (if-let ((next-sync-token (gcal-ocalcache-next-sync-token ocalcache)))
-                (let* ((params-with-sync-token
-                        (cons
-                         (cons 'nextSyncToken next-sync-token)
-                         params))
-                       (gevents-1
-                        (gcal-events-list calendar-id params-with-sync-token)))
-                  (if (eq (gcal-get-error-code gevents-1) 410)
-                      ;; Sync token is no longer valid, a full sync is required.
-                      (progn
-                        (message "Sync token is no longer valid, a full sync is required.")
-                        (gcal-events-list calendar-id params))
-                    gevents-1))
-              ;; ocalcache does not have next-sync-token
-              (gcal-events-list calendar-id params))))
-         (next-sync-token (cdr (assq 'nextSyncToken gevents)))
-         (new-events
-          (mapcar (lambda (gevent) (gcal-oevent-from-gevent gevent t))
-                  (cdr (assq 'items gevents))))
-         result-events)
+         (next-sync-token (and
+                           ;; PARAMS does not contain nextSyncToken
+                           (null (assq 'nextSyncToken params))
+                           ;; full sync is not required
+                           (not full-sync)
+                           ;; Use ocalcache's nextSyncToken
+                           (gcal-ocalcache-next-sync-token ocalcache))))
+    (gcal-async-let*
+        (;; Try using ocalcache's next-sync-token
+         (gevents-nst (when next-sync-token
+                        ;;[Async]
+                        (gcal-events-list calendar-id
+                                          (cons (cons 'nextSyncToken
+                                                      next-sync-token)
+                                                params))))
+         ;; Try without using next-sync-token
+         (gevents (if (or (null gevents-nst)
+                          (when (eq (gcal-get-error-code gevents-nst) 410)
+                            (message "Sync token is no longer valid, a full sync is required.")
+                            t))
+                      ;;[Async]
+                      (gcal-events-list calendar-id params)
+                    gevents-nst)))
 
-    (if (gcal-failed-p gevents)
+      (when (gcal-failed-p gevents)
         (error "gcal-events-list failed %s" gevents))
 
-    ;; merge
-    (gcal-oevents-diff
-     old-events
-     new-events
-     ;; mod
-     (lambda (old-oe new-oe)
-       (if (gcal-oevent-deleted new-oe)
-           (push (gcal-org-pull--entry-del file old-oe) result-events)
-         (push (gcal-org-pull--entry-mod file old-oe new-oe) result-events)))
-     ;; add
-     (lambda (new-oe)
-       (if (gcal-oevent-deleted new-oe)
-           ;; unknown event deleted
-           nil
-         (push (gcal-org-pull--entry-add file headline new-oe) result-events)))
-     ;; del
-     (lambda (old-oe)
-       (push (gcal-org-pull--entry-del file old-oe) result-events))
-     ;; not change
-     (lambda (old-oe)
-       (push old-oe result-events)))
+      (let* ((new-next-sync-token (cdr (assq 'nextSyncToken gevents)))
+             (new-events
+              (mapcar (lambda (gevent) (gcal-oevent-from-gevent gevent t))
+                      (cdr (assq 'items gevents))))
+             result-events)
 
-    ;; update ocalcache
-    (setq ocalcache (gcal-ocalcache-set-oevents
-                     ocalcache
-                     (delq nil (nreverse result-events))))
-    (setq ocalcache (gcal-ocalcache-set-next-sync-token
-                     ocalcache
-                     next-sync-token))
+        ;; merge
+        (gcal-oevents-diff
+         old-events
+         new-events
+         ;; mod
+         (lambda (old-oe new-oe)
+           (if (gcal-oevent-deleted new-oe)
+               (push (gcal-org-pull--entry-del file old-oe) result-events)
+             (push (gcal-org-pull--entry-mod file old-oe new-oe) result-events)))
+         ;; add
+         (lambda (new-oe)
+           (if (gcal-oevent-deleted new-oe)
+               ;; unknown event deleted
+               nil
+             (push (gcal-org-pull--entry-add file headline new-oe) result-events)))
+         ;; del
+         (lambda (old-oe)
+           (push (gcal-org-pull--entry-del file old-oe) result-events))
+         ;; not change
+         (lambda (old-oe)
+           (push old-oe result-events)))
 
-    ;; save cache file
-    (gcal-ocalcache-save cache-file ocalcache)))
+        ;; update ocalcache
+        (setq ocalcache (gcal-ocalcache-set-oevents
+                         ocalcache
+                         (delq nil (nreverse result-events))))
+        (setq ocalcache (gcal-ocalcache-set-next-sync-token
+                         ocalcache
+                         new-next-sync-token))
+
+        ;; save cache file
+        (gcal-ocalcache-save cache-file ocalcache)))))
 
 (defun gcal-org-pull--entry-add (file headline new-oe)
   ;; @todo 本当はタイムスタンプ(id,ord)を追加しなければならない。
@@ -1215,33 +1247,45 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
 ;;
 
 (defun gcal-oevent-insert (calendar-id oevent)
+  ;;[Async]
   (gcal-events-insert calendar-id (gcal-oevent-to-gevent oevent)))
 
 (defun gcal-oevent-update (calendar-id oevent)
+  ;;[Async]
   (gcal-events-update calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
 
 (defun gcal-oevent-patch (calendar-id old-oevent new-oevent)
   (if-let ((delta-gevent (gcal-org-diff-gevents
                           (gcal-oevent-to-gevent old-oevent)
                           (gcal-oevent-to-gevent new-oevent))))
-      (gcal-events-patch
-       calendar-id
-       (gcal-oevent-gevent-id new-oevent)
-       delta-gevent)
+      (progn
+        (gcal-log "gcal-oevent-patch delta=%s" delta-gevent)
+        ;;[Async]
+        (gcal-events-patch
+         calendar-id
+         (gcal-oevent-gevent-id new-oevent)
+         delta-gevent))
     ;; No differences (gcal-succeeded-p nil)=>t
     nil))
 
 (defun gcal-oevent-delete (calendar-id oevent)
+  ;;[Async]
   (gcal-events-delete calendar-id (gcal-oevent-gevent-id oevent)))
 
 
 (defun gcal-oevents-insert (calendar-id oevents)
-  (cl-loop for oevent in oevents
-           do (gcal-oevent-insert calendar-id oevent)))
+  (gcal-async-wait-all
+      (dolist (oevent oevents)
+        ;;[Async]
+        (gcal-oevent-insert calendar-id oevent))
+    nil))
 
 (defun gcal-oevents-delete (calendar-id oevents)
-  (cl-loop for oevent in oevents
-           do (gcal-oevent-delete calendar-id oevent)))
+  (gcal-async-wait-all
+      (dolist (oevent oevents)
+        ;;[Async]
+        (gcal-oevent-delete calendar-id oevent))
+    nil))
 
 
 

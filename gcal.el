@@ -57,18 +57,371 @@
 
 
 
+;;;; Utilities
+
+(defvar gcal-log-enabled nil)
+
+(defun gcal-log (format-string &rest args)
+  (when gcal-log-enabled
+    (apply 'message format-string args))
+  nil)
+
+;;;; Asynchronous Execution Infrastructure
+
+(defvar gcal-async-callback nil)
+
+(defun gcal-async-callback-capture ()
+  (pcase gcal-async-callback
+    ;; nil
+    ('nil
+     nil)
+    ;; (sticky <fun-ref> <fun-callback>)
+    (`(sticky ,fun-ref ,fun-callback)
+     (when fun-ref
+       (funcall fun-ref))
+     fun-callback)
+    ;; <fun-callback>
+    ((and (pred functionp) fun-callback)
+     (setq gcal-async-callback nil)
+     fun-callback)
+    ;; Unknown
+    (_
+     nil)))
+
+(defun gcal-async-callback-call (callback result)
+  (if callback
+      (funcall callback result)
+    result))
+
+
+;;;;; gcal-async-let*
+
+;; Example1:
+;; (gcal-http-async ;; or -sync
+;;  (gcal-async-let
+;;      ((title
+;;        (gcal-async-let*
+;;            (;; Get first web page (can be async)
+;;             (response1
+;;              (gcal-http "GET" "https://example.com/"))
+;;             ;; Get first link destination in the page (can be async)
+;;             (response2
+;;              (let ((body (gcal-http-response-body response1)))
+;;                (when (string-match "href=\"\\([^\"]+\\)\"" body)
+;;                  (gcal-http "GET" (match-string 1 body))))))
+;;          ;; Get title (not async)
+;;          (let ((body (gcal-http-response-body response2)))
+;;            (when (string-match "<title>\\([^<]+\\)</title>" body)
+;;              (match-string 1 body))))))
+;;    (message "title=%s" title)))
+;;
+;; The good thing about this way of writing is that the code is
+;; exactly the same both synchronously and asynchronously. Also, for
+;; synchronous execution, replacing gcal-async-let with let will work.
+
+;; Example2:
+;; (gcal-http-async
+;;  (gcal-async-let ((callst (gcal-calendar-list-list)))
+;;    (pp callst (current-buffer))))
+
+
+(defmacro gcal-async-let*--0 (_varlist &rest body)
+  ;; There is no async expression.
+  `(progn
+     ,@body))
+
+(defmacro gcal-async-let*--1-inner (varlist body current-buffer callback)
+  (if (null varlist)
+      ;; Body
+      ;; () body
+      `(with-current-buffer
+           (if (buffer-live-p ,current-buffer)
+               ,current-buffer (current-buffer))
+         (gcal-async-callback-call
+          ,callback
+          (progn
+            ;; @todo Should I also consider asynchronous processing within the body?
+            ;; That way, `gcal-calendar-list-list' can be written as follows.
+            ;;   (defun gcal-calendar-list-list ()
+            ;;     (gcal-async-let* ((params (gcal-access-token-params)))
+            ;;       (gcal-retrieve-json-get (gcal-calendar-list-url) params)))
+            ,@body)))
+    ;; 1 or more variables
+    ;; ((var expr)...) body
+    (let ((var (nth 0 (car varlist)))
+          (expr (nth 1 (car varlist))))
+      `(let* ((gcal-async-callback
+               (lambda (,var)
+                 (gcal-async-let*--1-inner ,(cdr varlist) ,body
+                                           ,current-buffer ,callback)))
+              (result
+               ;; @todo Should I restore the current buffer here as well?
+               ;;(with-current-buffer (if (buffer-live-p ,current-buffer) ,current-buffer (current-buffer)) ,expr )
+               ,expr))
+         (if gcal-async-callback
+             (funcall (gcal-async-callback-capture) result)
+           result)))))
+
+(defmacro gcal-async-let*--1 (varlist &rest body)
+  (let ((current-buffer (gensym "current-buffer-"))
+        (callback (gensym "callback-")))
+    `(let ((,current-buffer (current-buffer))
+           (,callback (gcal-async-callback-capture)))
+       (gcal-async-let*--1-inner ,varlist ,body ,current-buffer ,callback))))
+
+(defmacro gcal-async-let* (varlist &rest body)
+  "(gcal-async-let* ((var1 async-expr1) (var2 async-expr2) ...) body)
+
+First async-expr1 is evaluated and once its value is determined
+it is set to var1. After that, async-exprN and varN are evaluated
+in the same way, and finally body is evaluated.
+
+Returns the return value of the function that was first executed
+asynchronously.
+
+If `gcal-async-callback' is set, it will be called after body is
+ evaluated.
+
+Same as `let*' if no asynchronous processing is performed."
+  (declare (indent 1))
+  (unless lexical-binding
+    (error "gcal.el requires lexical binding."))
+  (if (null varlist)
+      `(gcal-async-let*--0 nil ,@body)
+    `(gcal-async-let*--1 ,varlist ,@body)))
+
+
+;;;;; gcal-async-let (Parallel Execution)
+
+(defmacro gcal-async-let--2 (varlist &rest body)
+  (let ((current-buffer (gensym "current-buffer-"))
+        (callback (gensym "callback-"))
+        (result-vars (mapcar (lambda (_) (gensym "result-")) varlist))
+        (fun-expr-vars (mapcar (lambda (_) (gensym "fun-expr-")) varlist))
+        (fun-initialized (gensym "fun-initialized-"))
+        (num-uninitialized (gensym "num-uninitialized")))
+    `(let* (;; (fun-expr1 (lambda () <expr2>))
+            ;; (fun-expr2 (lambda () <expr2>))
+            ;; (fun-exprN (lambda () <exprN>))
+            ,@(cl-loop for (_var expr) in varlist
+                       for fun-expr in fun-expr-vars
+                       collect `(,fun-expr (lambda () ,expr)))
+            ;; var1
+            ;; var2
+            ;; varN
+            ,@(cl-loop for (var _expr) in varlist
+                       collect var)
+            (,current-buffer (current-buffer))
+            (,callback (gcal-async-callback-capture))
+            (,num-uninitialized ,(length varlist))
+            (,fun-initialized (lambda ()
+                                (when (= (cl-decf ,num-uninitialized) 0)
+                                  (with-current-buffer
+                                      (if (buffer-live-p ,current-buffer)
+                                          ,current-buffer (current-buffer))
+                                    (gcal-async-callback-call
+                                     ,callback
+                                     (progn
+                                       ,@body)))))))
+       ,@(cl-loop for (var _expr) in varlist
+                  for fun-expr in fun-expr-vars
+                  for result in result-vars
+                  collect
+                  `(let* ((gcal-async-callback (lambda (res)
+                                                 (setq ,var res)
+                                                 (funcall ,fun-initialized)))
+                          (,result (funcall ,fun-expr)))
+                     (if gcal-async-callback
+                         (funcall (gcal-async-callback-capture) ,result)
+                       ,result))))))
+
+(defmacro gcal-async-let (varlist &rest body)
+  "(gcal-async-let ((var1 async-expr1) (var2 async-expr2) ...) body)
+
+All async-exprs are evaluated first. Once the value of async-expr
+is determined, it will be set to the corresponding var. Once all
+vars are set, the body is evaluated.
+
+If `gcal-async-callback' is set, it will be called after body is
+ evaluated.
+
+Returns the return value of the last function executed
+asynchronously.
+
+Same as `let' if no asynchronous processing is performed."
+  (declare (indent 1))
+  (unless lexical-binding
+    (error "gcal.el requires lexical binding."))
+  (pcase (length varlist)
+    (0 `(gcal-async-let*--0 nil ,@body))
+    (1 `(gcal-async-let*--1 ,varlist ,@body))
+    (_ `(gcal-async-let--2 ,varlist ,@body))))
+
+;;;;; gcal-async-wait-all
+
+;; Example:
+;; (gcal-async-wait-all
+;;     (progn
+;;       (gcal-events-insert "xxxxxxxxxxxxx@gmail.com"
+;;                           `((start (date "2024-02-11") )
+;;                             (end (date "2024-02-12"))
+;;                             (summary . "Test Event1")))
+;;       (gcal-events-insert "xxxxxxxxxxxxx@gmail.com"
+;;                           `((start (date "2024-02-11") )
+;;                             (end (date "2024-02-12"))
+;;                             (summary . "Test Event2")))
+;;       (gcal-events-insert "xxxxxxxxxxxxx@gmail.com"
+;;                           `((start (date "2024-02-11") )
+;;                             (end (date "2024-02-12"))
+;;                             (summary . "Test Event3"))))
+;;   (message "Finish"))
+
+(defun gcal-async-wait-all--impl (fun-async-expr fun-body)
+  (let* ((callback (gcal-async-callback-capture))
+         (current-buffer (current-buffer))
+         (count 0)
+         (waiting nil)
+         (fun-body-caller (lambda ()
+                            (with-current-buffer
+                                (if (buffer-live-p current-buffer)
+                                    current-buffer (current-buffer))
+                              (gcal-async-callback-call
+                               callback
+                               (funcall fun-body)))))
+         (gcal-async-callback (list 'sticky
+                                    (lambda ()
+                                      (cl-incf count))
+                                    (lambda (_return-value)
+                                      (cl-decf count)
+                                      (when (and waiting (= count 0))
+                                        (funcall fun-body-caller)))))
+         (result-async-expr (funcall fun-async-expr)))
+    (if (= count 0)
+        (funcall fun-body-caller)
+      (setq waiting t)
+      result-async-expr)))
+
+(defmacro gcal-async-wait-all (multiple-async-expr &rest body)
+  "(gcal-async-wait-all multiple-async-expr body)"
+  (declare (indent 1))
+  `(gcal-async-wait-all--impl
+    (lambda () ,multiple-async-expr)
+    (lambda () ,@body)))
+
+
+
 ;;;; Process HTTP Request
 
-(defun gcal-http (method url params headers data)
-  "Send a HTTP Request."
+(defvar gcal-http-sync nil
+  "`t' or `sync' means `gcal-http' must be synchronous.
+`async' means `gcal-http' must be asynchronous.
+`nil' means to use the default (specified in `gcal-http-impl').")
+
+(defmacro gcal-http-sync (&rest body)
+  `(let ((gcal-http-sync t))
+     ,@body))
+
+(defmacro gcal-http-async (&rest body)
+  `(let ((gcal-http-sync 'async))
+     ,@body))
+
+(defvar gcal-http-impl 'gcal-http-impl-url-retrieve-synchronously
+  "A function that handles a HTTP request.
+
+Typically, this function actually sends the HTTP request and
+returns the result, but it can also send it asynchronously and
+return only the information to wait for the result, or it can
+return the request itself without sending it.")
+
+(defun gcal-http-impl ()
+  (pcase gcal-http-sync
+    ('nil gcal-http-impl)
+    ('async 'gcal-http-impl-url-retrieve)
+    (_ 'gcal-http-impl-url-retrieve-synchronously)))
+
+(defun gcal-http (method url &optional params headers data response-filters)
+  "Process a HTTP Request."
+  (funcall
+   (gcal-http-impl)
+   method url params headers data response-filters))
+
+(defun gcal-http-impl-url-retrieve-synchronously
+    (method url params headers data &optional response-filters)
   (let* ((url-request-method (or method "GET"))
          (url-request-extra-headers headers)
          (url-request-data data)
          (buffer (url-retrieve-synchronously
-                  (gcal-http-make-query-url url params))))
-    (unwind-protect
-        (gcal-parse-http-response buffer)
-      (kill-buffer buffer))))
+                  (gcal-http-make-query-url url params)))
+         (response (unwind-protect
+                       (gcal-parse-http-response buffer)
+                     (kill-buffer buffer)))
+         (response (gcal-http-apply-response-filters response
+                                                     response-filters)))
+    response))
+
+(defun gcal-http-impl-url-retrieve
+    (method url params headers data &optional response-filters)
+  (let* ((url-request-method (or method "GET"))
+         (url-request-extra-headers headers)
+         (url-request-data data)
+         (callback (gcal-async-callback-capture))
+         ;; @todo I want to use `url-queue-retrieve', but it doesn't
+         ;; support url-request-* variables!
+         ;;(retrieve-fun 'url-queue-retrieve)
+         (retrieve-fun 'url-retrieve)
+         (value
+          (funcall
+           retrieve-fun
+           (gcal-http-make-query-url url params) ;; URL
+           (gcal-http-impl-url-retrieve--make-callback-fun
+            response-filters callback
+            retrieve-fun url params headers data) ;; CALLBACK
+           nil ;; CBARGS
+           nil ;; SILENT
+           t ;; INHIBIT-COOKIES
+           )))
+    (list 'gcal-http-waiting retrieve-fun value)))
+
+(defun gcal-http-impl-url-retrieve--make-callback-fun
+    (response-filters
+     callback
+     retrieve-fun url params headers data)
+  (lambda (status)
+    (let* ((response
+            (if-let ((err (plist-get status :error)))
+                (progn
+                  (message
+                   "%s error %s url=%s params=%s headers=%s data=[[[%s]]] buffer=[[[%s]]]"
+                   retrieve-fun (prin1-to-string err)
+                   url params headers data
+                   (buffer-string))
+                  (pcase err
+                    ;; (error http 404)
+                    (`(error http ,_code)
+                     (gcal-parse-http-response (current-buffer)))
+                    (_
+                     ;;@todo 500?
+                     (gcal-http-response-data
+                      500 nil
+                      "{ \"error\": { \"code\": 500, \"message\": \"An unexpected error occurred on url-retrieve\" } }"))))
+              (gcal-parse-http-response (current-buffer))))
+           (response
+            (gcal-http-apply-response-filters
+             response response-filters)))
+      (gcal-async-callback-call callback response))))
+
+
+;; For response
+
+(defun gcal-http-response-status (response) (nth 0 response))
+(defun gcal-http-response-headers (response) (nth 2 response))
+(defun gcal-http-response-body (response) (nth 3 response))
+
+(defun gcal-http-response-data (status headers body)
+  (list status
+        nil ;; reason-phrase (should not be used)
+        headers
+        body))
 
 (defun gcal-parse-http-response (buffer)
   "Parse HTTP response in buffer."
@@ -77,11 +430,9 @@
     ;; status-line (ex: HTTP/1.1 200 OK)
     (when (looking-at "^HTTP/[^ ]+ \\([0-9]+\\) ?\\(.*\\)$")
       (forward-line)
-      (list
+      (gcal-http-response-data
        ;; status-code (integer)
        (string-to-number (match-string 1))
-       ;; reason-phrase (should not be used)
-       nil
        ;; header-field* (alist)
        (gcal-parse-http-headers) ;; goto beginning of message-body
        ;; message-body (string)
@@ -97,53 +448,24 @@
     (goto-char (match-end 0)) ;;move to after \r\n (at beginning of content)
     (nreverse headers)))
 
-(defun gcal-http-get (url params)
-  "Send GET request to url with params as query parameter."
-  (gcal-http "GET" url params nil nil))
-
-(defun gcal-http-post-form (url params)
-  "Send POST request(with x-www-form-url-encoded parms) to url."
-  (gcal-http "POST" url nil
-             '(("Content-Type" . "application/x-www-form-urlencoded"))
-             (gcal-http-make-query params)))
-
-(defun gcal-http-post-json (url params json-obj &optional method)
-  "Send POST request(with json) to url."
-  (gcal-http (or method "POST") url params
-             '(("Content-Type" . "application/json"))
-             (encode-coding-string (json-encode json-obj) 'utf-8)))
-
-
-(defun gcal-retrieve-json (method url params &optional headers data)
-  "Send HTTP request and return parsed JSON object."
-  (gcal-http-response-to-json (gcal-http method url params headers data)))
-
-(defun gcal-retrieve-json-get (url params)
-  "Send HTTP GET request and return parsed JSON object."
-  (gcal-http-response-to-json (gcal-http-get url params)))
-
-(defun gcal-retrieve-json-post-form (url params)
-  "Send HTTP POST request(x-www-form-url-encoded) and return
-parsed JSON object."
-  (gcal-http-response-to-json (gcal-http-post-form url params)))
-
-(defun gcal-retrieve-json-post-json (url params json-obj &optional method)
-  "Send HTTP POST request(with encoded JSON string) and return
-parsed JSON object."
-  (gcal-http-response-to-json (gcal-http-post-json url params json-obj method)))
-
-
 (defun gcal-http-response-to-json (response)
   "Convert HTTP response(return value of gcal-http,
 gcal-parse-http-response) to parsed JSON object(by
 json-read-from-string)."
-  (let* ((status (nth 0 response))
-         (body (nth 3 response)))
-    ;;@todo check status
+  (let* ((status (gcal-http-response-status response))
+         (body (gcal-http-response-body response)))
+    ;;@todo check status more
     (cond
-     ((= status 204) nil) ;;empty result
-     (t
+     ((equal status 204) nil) ;;empty result
+     ((and (stringp body) (not (string-empty-p body)))
       (json-read-from-string (decode-coding-string body 'utf-8))))))
+
+(defun gcal-http-apply-response-filters (response response-filters)
+  (dolist (fun response-filters)
+    (setq response (funcall fun response)))
+  response)
+
+;; For request
 
 (defun gcal-http-make-query (params)
   "Build query string. (ex: a=1&b=2&c=3)"
@@ -167,6 +489,51 @@ json-read-from-string)."
   "Build url with query string. (ex:http://example.com/?a=1&b=2&c=3)"
   (let ((query (gcal-http-make-query params)))
     (if (string-empty-p query) url (concat url "?" query))))
+
+(defconst gcal-http-headers-post-form
+  '(("Content-Type" . "application/x-www-form-urlencoded")))
+
+(defconst gcal-http-headers-post-json
+  '(("Content-Type" . "application/json")))
+
+(defun gcal-http-make-json-string (json-obj)
+  (encode-coding-string (json-encode json-obj) 'utf-8))
+
+(defun gcal-http-post-form (url params)
+  "Send POST request(with x-www-form-url-encoded parms) to url."
+  (gcal-http "POST" url nil
+             gcal-http-headers-post-form
+             (gcal-http-make-query params)))
+
+(defun gcal-http-post-json (url params json-obj &optional method)
+  "Send POST request(with json) to url."
+  (gcal-http (or method "POST") url params
+             gcal-http-headers-post-json
+             (gcal-http-make-json-string json-obj)))
+
+(defun gcal-retrieve-json (method url params &optional headers data)
+  "Send HTTP request and return parsed JSON object."
+  (gcal-http method url params headers data '(gcal-http-response-to-json)))
+
+(defun gcal-retrieve-json-get (url params)
+  "Send HTTP GET request and return parsed JSON object."
+  (gcal-http "GET" url params nil nil '(gcal-http-response-to-json)))
+
+(defun gcal-retrieve-json-post-form (url params)
+  "Send HTTP POST request(x-www-form-url-encoded) and return
+parsed JSON object."
+  (gcal-http "POST" url nil
+             gcal-http-headers-post-form
+             (gcal-http-make-query params)
+             '(gcal-http-response-to-json)))
+
+(defun gcal-retrieve-json-post-json (url params json-obj &optional method)
+  "Send HTTP POST request(with encoded JSON string) and return
+parsed JSON object."
+  (gcal-http (or method "POST") url params
+             gcal-http-headers-post-json
+             (gcal-http-make-json-string json-obj)
+             '(gcal-http-response-to-json)))
 
 
 
@@ -208,7 +575,8 @@ json-read-from-string)."
                (:constructor gcal-oauth-token-make))
   access expires refresh url-unused)
 
-(defun gcal-oauth-token-get (token token-file
+(defun gcal-oauth-token-get (token
+                             token-file
                              auth-url token-url client-id client-secret scope
                              &optional force-update)
   "Get an OAuth token.
@@ -225,56 +593,70 @@ Can be one of the following:
   (when (or (null client-secret) (string-empty-p client-secret))
     (error "client-secret is not specified"))
 
+  ;; Load from token-file
   (if (eq force-update 'reauth)
       (setq token nil)
-    ;; load from token-file
     (unless token
-      (setq token (gcal-oauth-load-token token-file)))
+      (setq token (gcal-oauth-load-token token-file))))
 
-    ;; refresh token
-    (when (and token
-               (or (eq force-update 'refresh)
-                   (gcal-oauth-token-expired-p token)))
-      (setq token (gcal-oauth-refresh token client-id client-secret token-url))
-      (gcal-oauth-save-token token-file token))) ;; save token if not null
+  (gcal-async-let*
+      ((token
+        (if (and token
+                 (or (eq force-update 'refresh)
+                     (gcal-oauth-token-expired-p token)))
+            ;; Refresh token
+            (gcal-oauth-refresh token client-id client-secret token-url
+                                ;; Save when refreshed
+                                token-file)
+          token))
+       (token
+        (if token
+            token
+          ;; New token
+          (gcal-oauth-auth auth-url token-url client-id client-secret scope
+                           ;; Save when created
+                           token-file))))
+    ;; failed
+    (unless token
+      (error "Failed to get access token"))
+    ;; return token
+    token))
 
-  ;; new token
-  (unless token
-    (setq token (gcal-oauth-auth auth-url token-url client-id client-secret scope))
-    (gcal-oauth-save-token token-file token)) ;; save token if not null
-
-  ;; failed
-  (unless token
-    (error "Failed to get access token"))
-
-  ;; return token
-  token)
-
-(defun gcal-oauth-auth (auth-url token-url client-id client-secret scope)
+(defun gcal-oauth-auth (auth-url token-url client-id client-secret scope
+                                 &optional token-file)
   "Get a new OAuth token.
 Returns a `gcal-oauth-token' object or nil on failure.
 Returns nil on failure."
-  (when-let ((response (gcal-oauth-auth--retrieve
-                        auth-url token-url client-id client-secret scope)))
-    (gcal-oauth-token-make
-     :access (alist-get 'access_token response)
-     :expires (gcal-oauth-response-expires-at response)
-     :refresh (alist-get 'refresh_token response))))
+  (gcal-async-let ((response (gcal-oauth-auth--retrieve
+                              auth-url token-url
+                              client-id client-secret scope)))
+    (when response
+      (let ((token (gcal-oauth-token-make
+                    :access (alist-get 'access_token response)
+                    :expires (gcal-oauth-response-expires-at response)
+                    :refresh (alist-get 'refresh_token response))))
+        (when token-file
+          (gcal-oauth-save-token token-file token))
+        token))))
 
-(defun gcal-oauth-refresh (token client-id client-secret token-url)
+(defun gcal-oauth-refresh (token client-id client-secret token-url
+                                 &optional token-file)
   "Refresh `gcal-oauth-token' object TOKEN.
 Returns TOKEN with updated access token and expiration date.
 Returns nil if refresh fails."
-  (when-let ((response (gcal-oauth-refresh--retrieve
-                        (gcal-oauth-token-refresh token)
-                        token-url
-                        client-id
-                        client-secret)))
-    (setf (gcal-oauth-token-access token)
-          (alist-get 'access_token response))
-    (setf (gcal-oauth-token-expires token)
-          (gcal-oauth-response-expires-at response))
-    token))
+  (gcal-async-let ((response (gcal-oauth-refresh--retrieve
+                              (gcal-oauth-token-refresh token)
+                              token-url
+                              client-id
+                              client-secret)))
+    (when response
+      (setf (gcal-oauth-token-access token)
+            (alist-get 'access_token response))
+      (setf (gcal-oauth-token-expires token)
+            (gcal-oauth-response-expires-at response))
+      (when token-file
+        (gcal-oauth-save-token token-file token))
+      token)))
 
 ;; Expiration Time
 
@@ -344,11 +726,10 @@ Returns parsed JSON."
    "refresh"))
 
 (defun gcal-oauth-retrieve-token (token-url params operation)
-  (gcal-oauth-check-access-token-response
-   (gcal-retrieve-json-post-form
-    token-url
-    params)
-   operation))
+  (gcal-async-let ((response (gcal-retrieve-json-post-form token-url params)))
+    (gcal-oauth-check-access-token-response
+     response
+     operation)))
 
 (defun gcal-oauth-check-access-token-response (response operation)
   "Check the RESPONSE of access token acquisition (or refresh).
@@ -649,19 +1030,21 @@ stored in variables `gcal-auth-url', `gcal-token-url',
 `gcal-scope-url', `gcal-client-id' and `gcal-client-secret'.
 
 See `gcal-oauth-token-get' for FORCE-UPDATE."
-  (setq gcal-access-token (gcal-oauth-token-get
+  (gcal-async-let ((token (gcal-oauth-token-get
                            gcal-access-token
                            gcal-token-file
                            gcal-auth-url gcal-token-url
                            gcal-client-id gcal-client-secret
                            gcal-scope-url
-                           force-update))
-  ;; Return access token
-  (gcal-oauth-token-access gcal-access-token))
+                           force-update)))
+    (setq gcal-access-token token)
+    ;; Return access token
+    (gcal-oauth-token-access gcal-access-token)))
 
-(defun gcal-access-token-params ()
-  `(
-    ("access_token" . ,(gcal-access-token))))
+(defun gcal-access-token-params (&optional additional-params)
+  (gcal-async-let ((access-token (gcal-access-token)))
+    `(("access_token" . ,access-token)
+      ,@additional-params)))
 
 
 
@@ -700,9 +1083,11 @@ See `gcal-oauth-token-get' for FORCE-UPDATE."
     (cdr (assq 'code (cdr (assq 'error response-json))))))
 
 (defun gcal-succeeded-p (response-json)
+  ;; NOTE: Events:delete returns an empty body response if successful.
   (null (gcal-get-error-code response-json)))
 
 (defun gcal-failed-p (response-json)
+  ;; NOTE: Events:delete returns an empty body response if successful.
   (not (null (gcal-get-error-code response-json))))
 
   ;; CalendarList
@@ -711,9 +1096,11 @@ See `gcal-oauth-token-get' for FORCE-UPDATE."
   "CalendarList: list
 
 URL `https://developers.google.com/calendar/api/v3/reference/calendarList/list'"
-  (gcal-retrieve-json-get
-   (gcal-calendar-list-url)
-   (gcal-access-token-params)))
+  (gcal-async-let* ((params (gcal-access-token-params))
+                    (response (gcal-retrieve-json-get
+                               (gcal-calendar-list-url)
+                               params)))
+    response))
 
   ;; Events
 
@@ -721,25 +1108,33 @@ URL `https://developers.google.com/calendar/api/v3/reference/calendarList/list'"
   "Events: list
 
 URL `https://developers.google.com/calendar/api/v3/reference/events/list'"
-  (gcal-retrieve-json-get
-   (gcal-events-url calendar-id)
-   (append (gcal-access-token-params) params)))
+  (gcal-async-let* ((params (gcal-access-token-params params))
+                    (response (gcal-retrieve-json-get
+                               (gcal-events-url calendar-id)
+                               params)))
+    response))
 
 (defun gcal-events-get (calendar-id event-id &optional params)
   "Events: get
 
 URL `https://developers.google.com/calendar/api/v3/reference/events/get'"
-  (gcal-retrieve-json-get
-   (gcal-events-url calendar-id event-id)
-   (append (gcal-access-token-params) params)))
+  (gcal-async-let* ((params (gcal-access-token-params params))
+                    (response (gcal-retrieve-json-get
+                               (gcal-events-url calendar-id event-id)
+                               params)))
+    response))
 
 (defun gcal-events-quick-add (calendar-id text &optional params)
   "Events: quickAdd
 
 URL `https://developers.google.com/calendar/api/v3/reference/events/quickAdd'"
-  (gcal-retrieve-json-post-json
-   (gcal-events-url calendar-id "quickAdd")
-   (append (gcal-access-token-params) params `(("text" . ,text))) nil))
+  (gcal-async-let* ((params (gcal-access-token-params
+                             (append params `(("text" . ,text)))))
+                    (response (gcal-retrieve-json-post-json
+                               (gcal-events-url calendar-id "quickAdd")
+                               params
+                               nil)))
+    response))
 
 (defun gcal-events-insert (calendar-id event-data &optional params)
   "Events: insert
@@ -755,39 +1150,47 @@ Example:
    (summary . \"First Test Event\")
    )
  )"
-  (gcal-retrieve-json-post-json
-   (gcal-events-url calendar-id)
-   (append (gcal-access-token-params) params)
-   event-data))
+  (gcal-async-let* ((params (gcal-access-token-params params))
+                    (response (gcal-retrieve-json-post-json
+                               (gcal-events-url calendar-id)
+                               params
+                               event-data)))
+    response))
 
 (defun gcal-events-patch (calendar-id event-id event-data &optional params)
   "Events: patch
 
 URL `https://developers.google.com/calendar/api/v3/reference/events/patch'"
-  (gcal-retrieve-json-post-json
-   (gcal-events-url calendar-id event-id)
-   (append (gcal-access-token-params) params)
-   event-data
-   "PATCH"))
+  (gcal-async-let* ((params (gcal-access-token-params params))
+                    (response (gcal-retrieve-json-post-json
+                               (gcal-events-url calendar-id event-id)
+                               params
+                               event-data
+                               "PATCH")))
+    response))
 
 (defun gcal-events-update (calendar-id event-id event-data &optional params)
   "Events: update
 
 URL `https://developers.google.com/calendar/api/v3/reference/events/update'"
-  (gcal-retrieve-json-post-json
-   (gcal-events-url calendar-id event-id)
-   (append (gcal-access-token-params) params)
-   event-data
-   "PUT"))
+  (gcal-async-let* ((params (gcal-access-token-params params))
+                    (response (gcal-retrieve-json-post-json
+                               (gcal-events-url calendar-id event-id)
+                               params
+                               event-data
+                               "PUT")))
+    response))
 
 (defun gcal-events-delete (calendar-id event-id &optional params)
   "Events: delete
 
 URL `https://developers.google.com/calendar/api/v3/reference/events/delete'"
-  (gcal-retrieve-json
-   "DELETE"
-   (gcal-events-url calendar-id event-id)
-   (append (gcal-access-token-params) params) ))
+  (gcal-async-let* ((params (gcal-access-token-params params))
+                    (response (gcal-retrieve-json
+                               "DELETE"
+                               (gcal-events-url calendar-id event-id)
+                               params)))
+    response))
 
 
 
