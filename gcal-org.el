@@ -337,8 +337,9 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 
 (defun gcal-ocalcache-save (file ocalcache)
   "Save OCALCACHE(a list of oevent and some properties) to FILE."
-  (with-temp-file file
-    (pp ocalcache (current-buffer))))
+  (let ((coding-system-for-write 'utf-8))
+    (with-temp-file file
+      (pp ocalcache (current-buffer)))))
 
 (defun gcal-ocalcache-load (file)
   "Load ocalcache(a list of oevent and some properties) from FILE."
