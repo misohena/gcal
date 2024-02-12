@@ -516,28 +516,34 @@ return the request itself without sending it.")
      callback
      retrieve-fun url params headers data)
   (lambda (status)
-    (let* ((response
-            (if-let ((err (plist-get status :error)))
-                (progn
-                  (message
-                   "%s error %s url=%s params=%s headers=%s data=[[[%s]]] buffer=[[[%s]]]"
-                   retrieve-fun (prin1-to-string err)
-                   url params headers data
-                   (buffer-string))
-                  (pcase err
-                    ;; (error http 404)
-                    (`(error http ,_code)
-                     (gcal-parse-http-response (current-buffer)))
-                    (_
-                     ;;@todo 500?
-                     (gcal-http-response-data
-                      500 nil
-                      "{ \"error\": { \"code\": 500, \"message\": \"An unexpected error occurred on url-retrieve\" } }"))))
-              (gcal-parse-http-response (current-buffer))))
-           (response
-            (gcal-http-apply-response-filters
-             response response-filters)))
-      (gcal-async-callback-call callback response))))
+    (let ((buffer (current-buffer)))
+      (unwind-protect
+          (let* ((response
+                  (if-let ((err (plist-get status :error)))
+                      ;; Error!
+                      (progn
+                        (message
+                         "%s error %s url=%s params=%s headers=%s data=[[[%s]]] buffer=[[[%s]]]"
+                         retrieve-fun (prin1-to-string err)
+                         url params headers data
+                         (buffer-string))
+                        (pcase err
+                          ;; (error http 404)
+                          (`(error http ,_code)
+                           (gcal-parse-http-response buffer))
+                          (_
+                           ;;@todo 500?
+                           (gcal-http-response-data
+                            500 nil
+                            "{ \"error\": { \"code\": 500, \"message\": \"An unexpected error occurred on url-retrieve\" } }"))))
+                    ;; Normal
+                    (gcal-parse-http-response buffer)))
+                 (response
+                  (gcal-http-apply-response-filters
+                   response response-filters)))
+            (gcal-async-callback-call callback response))
+        (when (buffer-live-p buffer)
+          (kill-buffer buffer))))))
 
 
 ;; For response
