@@ -367,14 +367,21 @@ Same as `let' if no asynchronous processing is performed."
 (defun gcal-url-retrieve--run (request)
   (with-slots (url silent inhibit-cookies method headers data buffer start-time)
       request
-    ;;(message "gcal-url-retrieve--run url=%s" url)
-    (let ((url-request-method method)
-          (url-request-extra-headers headers)
-          (url-request-data data))
-      (setf buffer (url-retrieve url #'gcal-url-retrieve--callback
-                                 (list request) silent inhibit-cookies)
-            start-time (float-time))
-      (push request gcal-url-retrieve--running))))
+    (gcal-log "gcal-url-retrieve--run url=%s" url)
+    (condition-case err
+        (let ((url-request-method method)
+              (url-request-extra-headers headers)
+              (url-request-data data))
+          (setf buffer (url-retrieve url #'gcal-url-retrieve--callback
+                                     (list request) silent inhibit-cookies)
+                start-time (float-time))
+          (push request gcal-url-retrieve--running))
+      (error
+       ;; Pass the error to the callback
+       (gcal-url-retrieve--call
+        request
+        `(:error (error gcal-url-retrieve-error ,(format "Error: %s" err))))
+       (gcal-url-retrieve--next)))))
 
 (defun gcal-url-retrieve--callback (status request)
   (gcal-url-retrieve--remove-from-running-list request)
@@ -539,7 +546,11 @@ return the request itself without sending it.")
                            ;;@todo 500?
                            (gcal-http-response-data
                             500 nil
-                            "{ \"error\": { \"code\": 500, \"message\": \"An unexpected error occurred on url-retrieve\" } }"))))
+                            (concat
+                             "{ \"error\": { \"code\": 500, \"message\": "
+                             "\"An unexpected error occurred on url-retrieve: "
+                             (format "%s" err)
+                             "\" } }")))))
                     ;; Normal
                     (gcal-parse-http-response buffer)))
                  (response
