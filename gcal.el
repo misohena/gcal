@@ -54,6 +54,7 @@
 (require 'url-util)
 (require 'json)
 (require 'parse-time)
+(require 'eieio)
 
 
 
@@ -322,6 +323,119 @@ Same as `let' if no asynchronous processing is performed."
 
 
 
+;;;; Alternative to `url-queue-retrieve'
+
+;; I want to use `url-queue-retrieve', but it doesn't support
+;; url-request-* variables! (as of Emacs 29.2)
+
+(cl-defstruct (gcal-url-retrieve-request
+               (:constructor gcal-url-retrieve-request))
+  url callback cbargs silent inhibit-cookies method headers data
+  buffer start-time)
+(defvar gcal-url-retrieve--waiting nil)
+(defvar gcal-url-retrieve--running nil)
+(defvar gcal-url-retrieve--timer nil)
+(defconst gcal-url-retrieve-parallel-processes 6)
+(defconst gcal-url-retrieve-timeout 5)
+
+(defun gcal-url-retrieve (url callback cbargs silent inhibit-cookies)
+  (let ((request
+         (gcal-url-retrieve-request
+          :url url :callback callback :cbargs cbargs :silent silent
+          :inhibit-cookies inhibit-cookies
+          :method url-request-method :headers url-request-extra-headers
+          :data url-request-data)))
+    (gcal-url-retrieve--push request)
+    (gcal-url-retrieve--next)
+    request))
+
+(defun gcal-url-retrieve--push (request)
+  (setq gcal-url-retrieve--waiting
+        (nconc gcal-url-retrieve--waiting (list request))))
+
+(defun gcal-url-retrieve--pop ()
+  (pop gcal-url-retrieve--waiting))
+
+(defun gcal-url-retrieve--next ()
+  ;;@todo Should I slightly delay startup with a timer?
+  (while (and gcal-url-retrieve--waiting
+              (< (length gcal-url-retrieve--running)
+                 gcal-url-retrieve-parallel-processes))
+    (gcal-url-retrieve--run (gcal-url-retrieve--pop)))
+  (gcal-url-retrieve--update-timer))
+
+(defun gcal-url-retrieve--run (request)
+  (with-slots (url silent inhibit-cookies method headers data buffer start-time)
+      request
+    ;;(message "gcal-url-retrieve--run url=%s" url)
+    (let ((url-request-method method)
+          (url-request-extra-headers headers)
+          (url-request-data data))
+      (setf buffer (url-retrieve url #'gcal-url-retrieve--callback
+                                 (list request) silent inhibit-cookies)
+            start-time (float-time))
+      (push request gcal-url-retrieve--running))))
+
+(defun gcal-url-retrieve--callback (status request)
+  (gcal-url-retrieve--remove-from-running-list request)
+  (unwind-protect
+      (gcal-url-retrieve--call request status)
+    (gcal-url-retrieve--next)))
+
+(defun gcal-url-retrieve--remove-from-running-list (request)
+  (setq gcal-url-retrieve--running
+        (delq request gcal-url-retrieve--running)))
+
+(defun gcal-url-retrieve--call (request status)
+  (with-slots (buffer callback cbargs) request
+    (if (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (apply callback status cbargs))
+      (with-temp-buffer
+        (apply callback status cbargs)))))
+
+(defun gcal-url-retrieve--kill-all-timeout-requests ()
+  (when-let ((timeout-requests (seq-filter #'gcal-url-retrieve--timeout-p
+                                           gcal-url-retrieve--running)))
+    (unwind-protect
+        (dolist (request timeout-requests)
+          (gcal-url-retrieve--kill request)
+          (gcal-url-retrieve--remove-from-running-list request)
+          (gcal-url-retrieve--call request
+                                   '(:error
+                                     (error gcal-url-retrieve-timeout "Timeout"))))
+      (gcal-url-retrieve--next))))
+
+(defun gcal-url-retrieve--timeout-p (request)
+  (>= (- (float-time) (oref request start-time)) gcal-url-retrieve-timeout))
+
+(defun gcal-url-retrieve--kill (request)
+  (with-slots (buffer) request
+    (when (bufferp buffer)
+      (cl-loop for process = (get-buffer-process buffer)
+               while process
+               do
+               (set-process-sentinel process #'ignore)
+               (ignore-errors (delete-process process))))))
+
+(defun gcal-url-retrieve--update-timer ()
+  (if gcal-url-retrieve--running
+      (gcal-url-retrieve--schedule-timer)
+    (gcal-url-retrieve--cancel-timer)))
+
+(defun gcal-url-retrieve--schedule-timer ()
+  (unless gcal-url-retrieve--timer
+    (setq gcal-url-retrieve--timer
+          (run-with-idle-timer
+           1 1 #'gcal-url-retrieve--kill-all-timeout-requests))))
+
+(defun gcal-url-retrieve--cancel-timer ()
+  (when gcal-url-retrieve--timer
+    (cancel-timer gcal-url-retrieve--timer)
+    (setq gcal-url-retrieve--timer nil)))
+
+
+
 ;;;; Process HTTP Request
 
 (defvar gcal-http-sync nil
@@ -379,10 +493,11 @@ return the request itself without sending it.")
          (url-request-extra-headers headers)
          (url-request-data data)
          (callback (gcal-async-callback-capture))
-         ;; @todo I want to use `url-queue-retrieve', but it doesn't
+         ;; I want to use `url-queue-retrieve', but it doesn't
          ;; support url-request-* variables!
-         ;;(retrieve-fun 'url-queue-retrieve)
-         (retrieve-fun 'url-retrieve)
+         ;; (retrieve-fun 'url-queue-retrieve)
+         ;; (retrieve-fun 'url-retrieve)
+         (retrieve-fun 'gcal-url-retrieve)
          (value
           (funcall
            retrieve-fun
