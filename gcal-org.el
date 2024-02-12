@@ -108,12 +108,19 @@
 
 `t'のときinvisibleテキストプロパティに基づいて見えない部分を除去
 します。ハイパーリンクをヘッドラインに含んでいる場合にブラケット
-やリンク先の部分を除去できます。
+やリンク先の部分を除去できます。この処理は全ての折りたたみを解除
+して(可視状態にして)から全体のfont-lockを確定させる必要があるため
+時間がかかります。
 
-注意:`t'のとき、Googleカレンダー側でsummaryを変更した場合にOrg側
-で不可視部分が削除されてしまう場合があります。"
+`link-only'のときリンクの不可視部分のみを除去します。完全ではない
+かもしれませんが多くの場合は問題が無く、処理は高速です。
+
+注意:非nilのとき、Googleカレンダー側でsummaryを変更した場合にOrg
+側で不可視部分が削除されてしまう場合があります。"
   :group 'gcal
-  :type 'boolean)
+  :type '(choice (const :tag "Do nothing" nil)
+                 (const :tag "Remove only hidden parts of links" link-only)
+                 (const :tag "Remove invisible text" t)))
 
 (defun gcal-org-parse-file (file)
   "指定されたファイルからイベントを集めます。
@@ -142,7 +149,7 @@
 "
   (save-excursion
     ;; update invisible text properties for the entire buffer
-    (when gcal-org-remove-invisible-text-from-summary
+    (unless (memq gcal-org-remove-invisible-text-from-summary '(nil link-only))
       ;;@todo use org-fold-core-save-visibility?
       (when (fboundp 'org-fold-show-all) ;;Org 9.6
         (org-fold-show-all))
@@ -205,9 +212,10 @@
 (defun gcal-org-parse-buffer--make-summary ()
   (substring-no-properties
    (funcall
-    (if gcal-org-remove-invisible-text-from-summary
-        #'gcal-org-visible-string
-      #'identity)
+    (pcase gcal-org-remove-invisible-text-from-summary
+      ('nil #'identity)
+      ('link-only #'gcal-org-remove-link-hidden-parts)
+      (_ #'gcal-org-visible-string))
     (org-get-heading t t))))
 
 (defun gcal-org-visible-string (str)
@@ -225,6 +233,17 @@
         (setq result (concat result (substring str beg next)))
         (setq beg next)))
     result))
+
+(defun gcal-org-remove-link-hidden-parts (str)
+  "文字列からリンクの不可視部分を除去します。"
+  ;; See: `org-link-make-regexps' and `org-activate-links--overlays'
+  (replace-regexp-in-string org-link-any-re
+                            (lambda (match-str)
+                              (or (match-string 3 match-str)
+                                  (match-string 2 match-str)
+                                  match-str))
+                            str
+                            t))
 
 (defun gcal-org-parse-buffer--make-summary-prefix (ts-prefix)
   "現在の位置(と引数で与えられた情報)からsummary-prefixを生成します。"
