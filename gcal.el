@@ -387,11 +387,15 @@ Same as `let' if no asynchronous processing is performed."
         (delq request gcal-url-retrieve--running)))
 
 (defun gcal-url-retrieve--call (request status)
-  (with-slots (buffer callback cbargs) request
-    (if (buffer-live-p buffer)
-        (with-current-buffer buffer
-          (apply callback status cbargs))
-      (with-temp-buffer
+  (with-slots (buffer cbargs) request
+    (when-let ((callback (oref request callback)))
+      (oset request callback nil) ;; Prevent double calls
+
+      (with-current-buffer
+          (if (buffer-live-p buffer)
+              buffer
+            ;; Killing the buffer is the responsibility of the callback.
+            (generate-new-buffer " *gcal-url-retrieve-temp*" t))
         (apply callback status cbargs)))))
 
 (defun gcal-url-retrieve--kill-all-timeout-requests ()
