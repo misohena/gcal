@@ -176,8 +176,14 @@ First async-expr1 is evaluated and once its value is determined
 it is set to var1. After that, async-exprN and varN are evaluated
 in the same way, and finally body is evaluated.
 
+Only one asynchronous function can be called within async-expr,
+and it must be called at the end of the expression. If async-expr
+does not contain an async function, its last evaluated value is
+set to var.
+
 Returns the return value of the function that was first executed
-asynchronously.
+asynchronously. If there is no asynchronous function, returns
+the value of BODY.
 
 If `gcal-async-callback' is set, it will be called after body is
  evaluated.
@@ -242,11 +248,17 @@ All async-exprs are evaluated first. Once the value of async-expr
 is determined, it will be set to the corresponding var. Once all
 vars are set, the body is evaluated.
 
+Only one asynchronous function can be called within async-expr,
+and it must be called at the end of the expression. If async-expr
+does not contain an async function, its last evaluated value is
+set to var.
+
 If `gcal-async-callback' is set, it will be called after body is
  evaluated.
 
 Returns the return value of the last function executed
-asynchronously.
+asynchronously. If there is no asynchronous function, returns
+the value of BODY.
 
 Same as `let' if no asynchronous processing is performed."
   (declare (indent 1))
@@ -318,10 +330,12 @@ Same as `let' if no asynchronous processing is performed."
 `nil' means to use the default (specified in `gcal-http-impl').")
 
 (defmacro gcal-http-sync (&rest body)
+  "`gcal-http' in BODY will be executed synchronously."
   `(let ((gcal-http-sync t))
      ,@body))
 
 (defmacro gcal-http-async (&rest body)
+  "`gcal-http' in BODY will be executed asynchronously."
   `(let ((gcal-http-sync 'async))
      ,@body))
 

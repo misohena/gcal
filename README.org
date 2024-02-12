@@ -1,3 +1,4 @@
+# -*- lexical-binding: t; -*-
 * Google Calendar Utilities for Emacs
 ** Settings on Google server
 
@@ -100,8 +101,43 @@ Download
 (gcal-org-pull-oevents
  "example@group.calendar.google.com"
  `((timeMin . ,(gcal-time-format (current-time) nil)))) ;;after current time
-
 #+END_SRC
+
+** Asynchronous execution
+
+#+begin_src elisp
+(gcal-http-async ;; or -sync
+ (gcal-async-let ((calendars (gcal-calendar-list-list)))
+   (message "number of items: %s" (length (alist-get 'items calendars)))))
+#+end_src
+
+#+begin_src elisp
+(gcal-http-async
+ (gcal-async-let* ((calendars (gcal-calendar-list-list)) ;; If you call an async function, it must be the last in the expression.
+                   (calendar-id (alist-get 'id (elt (alist-get 'items calendars)
+                                                    5))) ;; It is also possible to not include async functions.
+                   (events (gcal-events-list calendar-id
+                                             `((timeMin . ,(gcal-datetime 2024 2 1))
+                                               (timeMax . ,(gcal-datetime 2024 3 1))))))
+   (message "events=%s" events)))
+#+end_src
+
+#+begin_src elisp
+(gcal-http-async
+ (let ((event-list .....)
+       (calendar-id ".......")
+       response-list)
+   (gcal-async-wait-all
+       ;; Inside this, multiple asynchronous functions are executed.
+       (dolist (event-data event-list)
+         (gcal-async-let ((response (gcal-events-insert calendar-id event-data)))
+           (push response response-list)))
+     ;; Called when everything is complete.
+     (if (seq-some #'gcal-failed-p response-list)
+         (message "Looks like something went wrong.")
+       (message "It seems to have finished without any problems.")))))
+#+end_src
+
 ** Documents
 - [[http://misohena.jp/blog/2016-05-26-access-google-calendar-api-from-emacs.html][About gcal.el]]
 - [[http://misohena.jp/blog/2016-05-29-sync-events-between-google-calendar-and-org-mode.html][About gcal-org.el]]
