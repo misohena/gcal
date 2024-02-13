@@ -37,9 +37,9 @@
 (require 'org-element)
 
 
-;;
-;; gcal-oevent object
-;;
+
+;;;; gcal-oevent object
+
 
 (defun make-gcal-oevent (&rest args)
   (let (result)
@@ -70,26 +70,47 @@
 
 
 
-;;
-;; Parse org-mode document
-;;
+;;;; Parse org-mode document
+
 
 (defcustom gcal-org-allowed-timestamp-prefix '(nil "SCHEDULED" "DEADLINE")
-  "パースする際にイベントとみなされるタイムスタンプの接頭辞を持ちます。
-ここに含まれない接頭辞のついたタイムスタンプは無視され、イベントとして扱われません。
+  "Prefixes for timestamps that are considered events when parsing.
+
+Timestamps with prefixes not included here will be ignored and
+not treated as events.
+
+`nil' means no suffix.
+
+[lang:ja]
+パーズする際にイベントとみなされるタイムスタンプの接頭辞のリスト
+です。
+
+ここに含まれない接頭辞のついたタイムスタンプは無視され、イベント
+として扱われません。
+
 `nil'は接尾辞なしを表わします。"
   :group 'gcal
   :type '(repeat (choice (const "SCHEDULED") (const "DEADLINE") (const nil))))
 
 (defcustom gcal-org-include-parents-header-maximum 0
-  "イベントのsummaryに何階層上までのヘッダを含めるかを表します。
+  "The number of levels of ancestor headers to include in the event summary.
+
+`t' means to include all parent hierarchies.
+
+[lang:ja]
+イベントのsummaryに何階層上までのヘッダを含めるかの数。
+
 `t'は全ての親階層を含めることを表します。"
   :group 'gcal
   :type '(choice integer (const t)))
 
 (defcustom gcal-org-header-separator "/"
-  "`gcal-org-include-parents-header-maximum'が0でないときに、
-イベントのsummaryにおいてヘッダを隔てる文字列を表わします。"
+  "When `gcal-org-include-parents-header-maximum' is not 0,
+The string that separates the headers in the event summary.
+
+[lang:ja]
+`gcal-org-include-parents-header-maximum'が0でないときに、イベン
+トのsummaryにおいてヘッダを隔てる文字列を表します。"
   :group 'gcal
   :type 'string)
 
@@ -97,14 +118,35 @@
   '(("SCHEDULED" . "")
     ("DEADLINE" . "DL:")
     (nil . ""))
-  "タイムスタンプの種類(ts-prefix)に応じたイベントのsummaryの先頭に付ける文字列の対応表です。"
+  "An alist of strings to be added to the beginning of the event
+ summary according to the timestamp type (ts-prefix).
+
+[lang:ja]
+タイムスタンプの種類(ts-prefix)に応じたイベントのsummaryの先頭に
+付ける文字列のalist。"
   :group 'gcal
   :type '(alist
           :key-type (choice string (const nil))
           :value-type string))
 
 (defcustom gcal-org-remove-invisible-text-from-summary nil
-  "イベントのsummaryから不可視のテキストを除去するかを指定します。
+  "Specifies whether to remove invisible text from the event summary.
+
+When `t', removes invisible parts based on the invisible text
+property. If your headline contains a hyperlink, you can remove
+the brackets and the link destination. This process takes time
+because it is necessary to unfold everything (make it visible)
+and then confirm the entire font-lock.
+
+When `link-only', only the invisible part of the link is
+removed. It may not be perfect, but in most cases there are no
+problems and the process is fast.
+
+Note: When it is non-nil, if you change the summary on the Google
+Calendar side, the invisible part may be deleted on the Org side.
+
+[lang:ja]
+イベントのsummaryから不可視のテキストを除去するかを指定します。
 
 `t'のときinvisibleテキストプロパティに基づいて見えない部分を除去
 します。ハイパーリンクをヘッドラインに含んでいる場合にブラケット
@@ -123,9 +165,16 @@
                  (const :tag "Remove invisible text" t)))
 
 (defun gcal-org-parse-file (file)
-  "指定されたファイルからイベントを集めます。
+  "Collects events from the specified FILE.
 
-すでに FILE を開いている場合はそのバッファから集めます。"
+If there is already a buffer associated with FILE, collect it
+from that buffer.
+
+[lang:ja]
+指定されたFILEからイベントを集めます。
+
+すでにFILEに関連付けられているファイルがある場合は、そのバッファ
+から集めます。"
   ;;@todo Use temporary buffer when not visiting file ?
   ;; (if-let ((buffer (get-file-buffer file)))
   ;;     (with-current-buffer buffer
@@ -139,14 +188,23 @@
     (gcal-org-parse-buffer)))
 
 (defun gcal-org-parse-buffer ()
-  "現在のバッファからイベントを集めます。
+  "Collects events from the current buffer.
+
+Create one event for each timestamp. That's because Agenda's
+default (`org-agenda-entry-types' ?) is like that.
+
+To identify a timestamp, this function records the entry's ID as
+well as the ordinal number in which the timestamp appears within
+the entry.
+
+[lang:ja]
+現在のバッファからイベントを集めます。
 
 タイムスタンプ一つ毎に一つのイベントを作ります。Agendaのデフォル
 ト(org-agenda-entry-types ?)がそうなっているからです。
 
-タイムスタンプ毎にイベントを作るとIDが重複するため、同一エントリー
-内でのタイムスタンプの序数を持たせています。
-"
+タイムスタンプを識別するために、この関数はエントリーのIDの他にエ
+ントリーの中でタイムスタンプが登場した順序数を記録します。"
   (save-excursion
     ;; update invisible text properties for the entire buffer
     (unless (memq gcal-org-remove-invisible-text-from-summary '(nil link-only))
@@ -219,7 +277,10 @@
     (org-get-heading t t))))
 
 (defun gcal-org-visible-string (str)
-  "文字列から不可視のテキストを除去します。"
+  "Removes invisible parts from STR.
+
+[lang:ja]
+文字列STRから不可視の部分を除去します。"
   (let ((beg 0)
         (end (length str))
         (result ""))
@@ -235,7 +296,10 @@
     result))
 
 (defun gcal-org-remove-link-hidden-parts (str)
-  "文字列からリンクの不可視部分を除去します。"
+  "Removes invisible parts of links from STR.
+
+[lang:ja]
+文字列STRからリンクの不可視部分を除去します。"
   ;; See: `org-link-make-regexps' and `org-activate-links--overlays'
   (replace-regexp-in-string org-link-any-re
                             (lambda (match-str)
@@ -246,7 +310,11 @@
                             t))
 
 (defun gcal-org-parse-buffer--make-summary-prefix (ts-prefix)
-  "現在の位置(と引数で与えられた情報)からsummary-prefixを生成します。"
+  "Generates a summary-prefix from the current position (and
+information given in arguments).
+
+[lang:ja]
+現在の位置(と引数で与えられた情報)からsummary-prefixを生成します。"
   (concat
    ;; ts-prefix
    (gcal-org-make-summary-prefix-ts-prefix ts-prefix)
@@ -260,11 +328,18 @@
    ))
 
 (defun gcal-org-make-summary-prefix-ts-prefix (ts-prefix)
-  "summary-prefixのts-prefix部分を生成します。"
+  "Generate ts-prefix part of summary-prefix.
+
+[lang:ja]
+summary-prefixのts-prefix部分を生成します。"
   (or (cdr (assoc ts-prefix gcal-org-summary-prefix-ts-prefix-alist)) ""))
 
 (defun gcal-org-make-summary-prefix-path (path separator header-maximum)
-  "summary-prefixのpath部分を生成します。
+  "Generates path part of summary-prefix.
+Connect PATH with SEPARATOR to depth of HEADER-MAXIMUM.
+
+[lang:ja]
+summary-prefixのpath部分を生成します。
 HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
   (apply #'concat
          (mapcan (lambda (elt) (list elt separator))
@@ -299,9 +374,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 
 
 
-;;
-;; Calendar Cache with Org Events
-;;
+;;;; Calendar Cache with Org Events
 
 ;; OCALCACHE object has a list of OEVENT and the following properties:
 ;; - :next-sync-token
@@ -370,9 +443,8 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 
 
 
-;;
-;; Push org file to Google Calendar
-;;
+;;;; Push org file to Google Calendar
+
 
 (defun gcal-org-push-file (calendar-id file &optional cache-file)
   (if cache-file
@@ -454,9 +526,9 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
 
 
 
-;;
-;; Push list of org-mode events to Google Calendar
-;;
+
+;;;; Push list of org-mode events to Google Calendar
+
 ;; Usage:
 ;;  Upload:
 ;;   (setq my-schedule-pushed-oevents
@@ -557,9 +629,8 @@ old-events will be destroyed."
 
 
 
-;;
-;; Pull oevents from Google Calendar
-;;
+;;;; Pull oevents from Google Calendar
+
 
 (defun gcal-org-pull-oevents (calendar-id &optional params)
   "Download calendar events as list of gcal-oevent."
@@ -576,9 +647,8 @@ old-events will be destroyed."
 
 
 
-;;
-;; Pull events to file from Google Calendar
-;;
+;;;; Pull events to file from Google Calendar
+
 
 (defun gcal-org-pull-to-file (calendar-id
                               file headline cache-file
@@ -736,7 +806,10 @@ old-events will be destroyed."
       (funcall fun-apply-obj old-value)))))
 
 (defun gcal-org-with-oevent-entry (oevent file func ret-if-failed)
-  "FILE 内にある OEVENT がある場所を開いて、 FUNC を実行します。"
+  "Move to the location of OEVENT in FILE and execute FUNC.
+
+[lang:ja]
+FILE内にあるOEVENTがある場所を開いて、FUNCを実行します。"
   (let* ((id (gcal-oevent-id oevent))
          (place (org-id-find-id-in-file id file)))
     (if place
@@ -754,7 +827,9 @@ old-events will be destroyed."
  ;;org内容変更
 
 (defun gcal-org-set-heading-text (text)
-  "見出しテキストを変更します。"
+  "
+[lang:ja]
+見出しテキストを変更します。"
   (save-excursion
     (org-back-to-heading t)
 
@@ -762,7 +837,9 @@ old-events will be destroyed."
     (replace-match text t t nil 4)))
 
 (defun gcal-org-get-schedule-element (&optional keyword)
-  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値を
+  "
+[lang:ja]
+CLOSED,DEADLINE,SCHEDULEDのプロパティ値を
 org-element-timestamp-parserの戻り値で取得します。日付の範囲表現
 も取得できます。"
   (save-excursion
@@ -774,7 +851,9 @@ org-element-timestamp-parserの戻り値で取得します。日付の範囲表�
         (org-element-timestamp-parser))))
 
 (defun gcal-org-get-schedule-ts-range (&optional keyword)
-  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値で取得します。"
+  "
+[lang:ja]
+CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値で取得します。"
   (let* ((elem (cadr (gcal-org-get-schedule-element keyword)))
          (ts-start   (list
                       (plist-get elem :year-start)
@@ -793,7 +872,9 @@ org-element-timestamp-parserの戻り値で取得します。日付の範囲表�
         (list ts-start ts-end recurrence))))
 
 (defun gcal-org-set-schedule-ts-range (ts-range &optional keyword)
-  "CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値から設定します。"
+  "
+[lang:ja]
+CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値から設定します。"
   (let* ((recurrence (nth 2 ts-range))
          (ts-text (gcal-ts-format-org-range (nth 0 ts-range)
                                             (nth 1 ts-range)
@@ -847,9 +928,8 @@ org-element-timestamp-parserの戻り値で取得します。日付の範囲表�
 
 
 
-;;
-;; format oevent(oevent to org-mode text)
-;;
+;;;; format oevent(oevent to org-mode text)
+
 
 (defcustom gcal-org-oevent-template
   "** %{summary}\n%{ts-prefix-colon}%{timestamp}%{unsupported-recurrence}\n:PROPERTIES:\n :ID: %{id}\n%{propname-location-br}:END:\n"
@@ -910,9 +990,8 @@ org-element-timestamp-parserの戻り値で取得します。日付の範囲表�
 
 
 
-;;
-;; Diff org-mode events
-;;
+;;;; Diff org-mode events
+
 
 (defun gcal-oevents-find (oevents id ord)
   (cl-find-if (lambda (oe) (and (equal (gcal-oevent-id oe) id)
@@ -920,9 +999,13 @@ org-element-timestamp-parserの戻り値で取得します。日付の範囲表�
               oevents))
 
 (defun gcal-oevents-find-first-and-remove (cons-oevents id ord)
-  "cons-oeventsのcdr以降からid,ordとマッチするイベントを探し、そ
-の要素を削除し、その要素を返します。cons-oeventsの中身は変更され
-ます。"
+  "Search for an event matching id,ord from the cdr of CONS-OEVENTS
+onward, delete that element, and return that element. The
+contents of CONS-OEVENTS will change.
+
+[lang:ja]
+CONS-OEVENTSのcdr以降からid,ordとマッチするイベントを探し、その要
+素を削除し、その要素を返します。CONS-OEVENTSの中身は変更されます。"
   (let ((curr cons-oevents)
         result)
     (while (cdr curr)
@@ -965,12 +1048,14 @@ FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
 
 
 
-;;
-;; Difference between gevents
-;;
+;;;; Difference between gevents
+
 
 (defun gcal-org-diff-gevents (old-gevent new-gevent)
-  "OLD-GEVENTからNEW-GEVENTへの差分を抽出します。"
+  "Extract the differences from OLD-GEVENT to NEW-GEVENT.
+
+[lang:ja]
+OLD-GEVENTからNEW-GEVENTへの差分を抽出します。"
   (gcal-org-diff-gevents--internal
    old-gevent
    new-gevent
@@ -1058,12 +1143,15 @@ FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
 ;;   (private
 ;;    (gcalSummaryPrefix))))
 
-;;
-;; Convert between oevent(Org-mode Event) and gevent(Google Calendar Event)
-;;
+
+;;;; Convert between oevent(Org-mode Event) and gevent(Google Calendar Event)
+
 
 (defcustom gcal-ts-prefix-created-on-google "SCHEDULED"
-  "Google Calendarにおいて作成された予定をpullしたときに付ける接頭辞。"
+  "Prefix added when pulling a schedule created in Google Calendar.
+
+[lang:ja]
+Google Calendarにおいて作成された予定をpullしたときに付ける接頭辞。"
   :group 'gcal
   :type 'string)
 
@@ -1148,7 +1236,10 @@ FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
        )))))
 
 (defun gcal-org-remove-summary-prefix (summary-prefix summary)
-  "summaryからsummary-prefixを取り除いた結果を返します。"
+  "Removes SUMMARY-PREFIX from SUMMARY.
+
+[lang:ja]
+SUMMARYからSUMMARY-PREFIXを取り除きます。"
   (if (string-prefix-p summary-prefix summary)
       (string-remove-prefix summary-prefix summary)
     (display-warning
@@ -1160,9 +1251,18 @@ FUNC-MOD,FUNC-ADD,FUNC-DEL,FUNC-EQ on each event."
     summary))
 
 (defun gcal-org-google-supported-recurrence-p (recurrence)
-  "Googleカレンダーがサポートしているrecurrenceならtを返します。recurrenceがnilのときはtを返します。
+  "Returns t if recurrence is supported by Google Calendar. Returns
+t if recurrence is nil.
 
-GoogleカレンダーはFREQ=HOURLYをサポートしていないようです。時間毎の繰り返しを設定するUIも見当たりません。"
+Google Calendar doesn't seem to support FREQ=HOURLY. I can't find
+any UI to set the timely repetition.
+
+[lang:ja]
+Googleカレンダーがサポートしているrecurrenceならtを返します。
+recurrenceがnilのときはtを返します。
+
+GoogleカレンダーはFREQ=HOURLYをサポートしていないようです。時間毎
+の繰り返しを設定するUIも見当たりません。"
   ;; @todo RRULEの書き方全てを考慮していない。というかどのような書き方ができるか把握していない。全体を;で分割してしまって良いのか不明。
   (not (seq-some
         (lambda (rrule)
@@ -1194,14 +1294,24 @@ GoogleカレンダーはFREQ=HOURLYをサポートしていないようです。
   ;; Convert event id
 
 (defun gcal-oevent-id-to-gevent-id (uuid)
-  "oeventのID(UUID)をGoogle CalendarのイベントID表現へ変換します。
+  "Converts oevent ID (UUID) to Google Calendar event ID representation.
+Convert to base32hex.
+
+[lang:ja]
+oeventのID(UUID)をGoogle CalendarのイベントID表現へ変換します。
 base32hexへ変換します。"
   (if (gcal-uuid-p uuid)
       (downcase (gcal-uuid-to-base32hex uuid))
     uuid))
 
 (defun gcal-oevent-gevent-id (oevent)
-  "gcal-oevent構造体からGoogle CalendarのイベントIDを求めます。
+  "Obtain the Google Calendar event ID from the gcal-oevent structure OEVENT.
+
+If there are multiple timestamps in the same entry, separate IDs
+will be assigned.
+
+[lang:ja]
+gcal-oevent構造体OEVENTからGoogle CalendarのイベントIDを求めます。
 同一エントリー内に複数のタイムスタンプがある場合に別々のIDを振り
 ます。"
   (let ((gid (gcal-oevent-id-to-gevent-id (gcal-oevent-id oevent)))
@@ -1222,7 +1332,13 @@ base32hexへ変換します。"
                       (substring id 26)))))
 
 (defun gcal-oevent-base32hex-uuid-irreversible-p (id)
-  "ID がUUIDのbase32hex表記であり、かつ、UUIDへ変換して再度
+  "If ID is a base32hex representation of a UUID, and it does not
+return to ID when converted to UUID and then back to
+base32hex (if it is irreversible), returns t. For some reason,
+events created with Google Calendar sometimes have such IDs.
+
+[lang:ja]
+ID がUUIDのbase32hex表記であり、かつ、UUIDへ変換して再度
 base32hexに変換したときに ID に戻らないなら(不可逆なら) t を返し
 ます。Googleカレンダーで作成した予定はなぜかそのようなIDを持つこ
 とがあります。"
@@ -1262,9 +1378,8 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
 
 
 
-;;
-;; oevent event operation
-;;
+;;;; oevent event operation
+
 
 (defun gcal-oevent-insert (calendar-id oevent)
   ;;[Async]
@@ -1314,9 +1429,8 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
 
 
 
-;;
-;; oevent timestamp representation
-;;
+;;;; oevent timestamp representation
+
 ;; (year month day hour minite)
 ;;
 ;; Examples:
@@ -1350,7 +1464,10 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
     (list y m (if date-only (1+ d) d) hh (if date-only mm (1+ mm)))))
 
 (defun gcal-ts-end-exclusive (_ts-start ts-end)
-  "終了日がその日自身を含まないように補正します。"
+  "Correct the end date TS-END so that it does not include that day itself.
+
+[lang:ja]
+終了日がその日自身を含まないように補正します。"
   (if (gcal-ts-date-only ts-end) ;;<2016-05-26 Thu>--<2016-05-27 Fri> => 28
       (gcal-ts-inc ts-end)
     ;; <2016-05-26 Thu 15:00-15:00> ;; => 15:00 (not 15:01)
@@ -1358,7 +1475,7 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
     ts-end))
 
 (defun gcal-ts-end-inclusive (ts-start ts-end)
-  "Reverse gcal-ts-end-exclusive."
+  "Reverse `gcal-ts-end-exclusive'."
   (if (and ts-end (gcal-ts-date-only ts-end))
       (let* ((t-start (gcal-ts-to-time ts-start))
              (t-end   (gcal-ts-to-time ts-end))
@@ -1417,7 +1534,11 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
    recurrence))
 
 (defun gcal-ts-append-repeater (ts-str recurrence)
-  "タイムスタンプ文字列TS-STRにRECURRENCEから生成したリピーターを付加したものを返します。"
+  "Adds a repeater generated from RECURRENCE to the timestamp string TS-STR.
+
+[lang:ja]
+タイムスタンプ文字列TS-STRにRECURRENCEから生成したリピーターを付
+加したものを返します。"
   (if recurrence
       (if-let ((repeater (gcal-ts-repeater-from-recurrence recurrence)))
           (concat
@@ -1429,7 +1550,13 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
     ts-str))
 
 (defun gcal-ts-repeater-from-recurrence (recurrence)
-  "RECURRENCEをタイムスタンプのリピーター部分に変換します。
+  "Converts RECURRENCE to the repeater part of a timestamp.
+
+If conversion is not possible (RECURRENCE is nil, unsupported
+specifications, etc.), nil is returned.
+
+[lang:ja]
+RECURRENCEをタイムスタンプのリピーター部分に変換します。
 
 変換できない場合(RECURRENCEがnil、対応していない指定等)の場合はnilを返します。"
   (if (and (sequencep recurrence) (= (length recurrence) 1))
@@ -1462,21 +1589,35 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
 ;;(gcal-ts-repeater-from-recurrence ["RRULE:FREQ=DAILY;INTERVAL=2"]) => " +2d"
 
 (defun gcal-ts-supported-recurrence-p (recurrence)
-  "RECURRENCEが対応している(org-modeのタイムスタンプで表現できる)指定ならtを返します。
+  "Returns t if the specification is supported by RECURRENCE (can be
+expressed as an org-mode timestamp).
 
-RECURRENCEがnilの場合、リピーターがないタイムスタンプで表現できるのでtを返します。"
+If RECURRENCE is nil, it returns t because it can be expressed as
+a timestamp without a repeater.
+
+[lang:ja]
+RECURRENCEが対応している(org-modeのタイムスタンプで表現できる)指
+定ならtを返します。
+
+RECURRENCEがnilの場合、リピーターがないタイムスタンプで表現できる
+のでtを返します。"
   (if recurrence
       (not (null (gcal-ts-repeater-from-recurrence recurrence)))
     t))
 
-;;
-;; Timestamp Additional Properties
+
+;;;; Timestamp Additional Properties
+
 ;;
 ;; e.g. <2021-02-07 Sun>#(:recurrence ["RRULE:FREQ=WEEKLY;WKST=SU;BYDAY=FR,MO"])
 ;;
 
 (defun gcal-ts-get-additional-properties-range (ts-end)
-  "TS-ENDの直後にある#(で始まるリストとその範囲を返します。
+  "Returns the list starting with #( immediately after TS-END and its range.
+Returns a list of (object begin end).
+
+[lang:ja]
+TS-ENDの直後にある#(で始まるリストとその範囲を返します。
 (object begin end)のリストを返します。"
   (save-excursion
     (if (integerp ts-end)
@@ -1495,17 +1636,28 @@ RECURRENCEがnilの場合、リピーターがないタイムスタンプで表�
             (list object begin end)))))))
 
 (defun gcal-ts-get-additional-properties (ts)
-  "タイムスタンプ直後にある#(で始まるリストを返します。"
+  "Returns a list starting with #( immediately after the timestamp TS.
+
+[lang:ja]
+タイムスタンプ直後にある#(で始まるリストを返します。"
   (car
    (gcal-ts-get-additional-properties-range
     (plist-get ts :end))))
 
 (defun gcal-ts-get-additional-property (ts key)
-  "タイムスタンプ直後にある#(で始まるリストからプロパティを取得します。"
+  "Get a value of property KEY from the list starting with #(
+immediately after the timestamp TS.
+
+[lang:ja]
+タイムスタンプ直後にある#(で始まるリストからプロパティを取得します。"
   (plist-get (gcal-ts-get-additional-properties ts) key))
 
 (defun gcal-ts-set-additional-property (ts-end key value)
-  "TS-ENDの直後にある#(で始まるリストにプロパティを設定します。"
+  "Set a property KEY to VALUE in the list starting with #(
+immediately after TS-END.
+
+[lang:ja]
+TS-ENDの直後にある#(で始まるリストにプロパティを設定します。"
   (let* ((plist-range (gcal-ts-get-additional-properties-range ts-end))
          (plist (car plist-range))
          (begin (cadr plist-range))
@@ -1525,7 +1677,10 @@ RECURRENCEがnilの場合、リピーターがないタイムスタンプで表�
       (insert (prin1-to-string plist)))))
 
 (defun gcal-ts-delete-additional-property (ts-end key)
-  "TS-END直後にある#(で始まるリストからプロパティを削除します。"
+  "Delete property KEY from the list starting with #( immediately after TS-END.
+
+[lang:ja]
+TS-END直後にある#(で始まるリストからプロパティを削除します。"
   (if-let ((plist-range (gcal-ts-get-additional-properties-range ts-end)))
       (let ((plist (car plist-range))
             (begin (cadr plist-range))
