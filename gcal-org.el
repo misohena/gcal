@@ -226,21 +226,21 @@ the entry.
                (id         (when ts-prefix-allowed (org-id-get-create))) ;; change (point)
                (location   (org-entry-get (point) "LOCATION"))
                (summary    (gcal-org-parse-buffer--make-summary))
-               (ts         (cadr (org-element-timestamp-parser)))
-               (ts-end-pos (plist-get ts :end))
+               (ts-node    (org-element-timestamp-parser))
+               (ts-end-pos (org-element-property :end ts-node))
                (ts-start   (list
-                            (plist-get ts :year-start)
-                            (plist-get ts :month-start)
-                            (plist-get ts :day-start)
-                            (plist-get ts :hour-start)
-                            (plist-get ts :minute-start)))
+                            (org-element-property :year-start ts-node)
+                            (org-element-property :month-start ts-node)
+                            (org-element-property :day-start ts-node)
+                            (org-element-property :hour-start ts-node)
+                            (org-element-property :minute-start ts-node)))
                (ts-end     (list
-                            (plist-get ts :year-end)
-                            (plist-get ts :month-end)
-                            (plist-get ts :day-end)
-                            (plist-get ts :hour-end)
-                            (plist-get ts :minute-end)))
-               (recurrence  (gcal-org-make-recurrence ts))
+                            (org-element-property :year-end ts-node)
+                            (org-element-property :month-end ts-node)
+                            (org-element-property :day-end ts-node)
+                            (org-element-property :hour-end ts-node)
+                            (org-element-property :minute-end ts-node)))
+               (recurrence  (gcal-org-make-recurrence ts-node))
                (same-entry-info  (assoc id entries))
                (same-entry-count (length (nth 1 same-entry-info)))
                (summary-prefix (gcal-org-parse-buffer--make-summary-prefix
@@ -351,10 +351,10 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
                     0)
                   path))))
 
-(defun gcal-org-make-recurrence (ts)
-  (if-let ((repeater-type (plist-get ts :repeater-type))
-           (repeater-unit (plist-get ts :repeater-unit))
-           (repeater-value (plist-get ts :repeater-value))
+(defun gcal-org-make-recurrence (ts-node)
+  (if-let ((repeater-type (org-element-property :repeater-type ts-node))
+           (repeater-unit (org-element-property :repeater-unit ts-node))
+           (repeater-value (org-element-property :repeater-value ts-node))
            (repeater-unit-str (cdr (assq
                                     repeater-unit
                                     '((hour . "HOURLY")
@@ -370,7 +370,7 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
            (format "RRULE:FREQ=%s;INTERVAL=%s" repeater-unit-str repeater-value)))
 
     ;; Get from addtional properties
-    (gcal-ts-get-additional-property ts :recurrence)))
+    (gcal-ts-get-additional-property ts-node :recurrence)))
 
 
 
@@ -854,22 +854,25 @@ org-element-timestamp-parserの戻り値で取得します。日付の範囲表�
   "
 [lang:ja]
 CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値で取得します。"
-  (let* ((elem (cadr (gcal-org-get-schedule-element keyword)))
-         (ts-start   (list
-                      (plist-get elem :year-start)
-                      (plist-get elem :month-start)
-                      (plist-get elem :day-start)
-                      (plist-get elem :hour-start)
-                      (plist-get elem :minute-start)))
-         (ts-end     (list
-                      (plist-get elem :year-end)
-                      (plist-get elem :month-end)
-                      (plist-get elem :day-end)
-                      (plist-get elem :hour-end)
-                      (plist-get elem :minute-end)))
-         (recurrence (gcal-org-make-recurrence elem)))
-    (if elem
-        (list ts-start ts-end recurrence))))
+  (let ((ts-node (gcal-org-get-schedule-element keyword)))
+    (when ts-node
+      (list
+       ;; ts-start
+       (list
+        (org-element-property :year-start ts-node)
+        (org-element-property :month-start ts-node)
+        (org-element-property :day-start ts-node)
+        (org-element-property :hour-start ts-node)
+        (org-element-property :minute-start ts-node))
+       ;; ts-end
+       (list
+        (org-element-property :year-end ts-node)
+        (org-element-property :month-end ts-node)
+        (org-element-property :day-end ts-node)
+        (org-element-property :hour-end ts-node)
+        (org-element-property :minute-end ts-node))
+       ;; recurrence
+       (gcal-org-make-recurrence ts-node)))))
 
 (defun gcal-org-set-schedule-ts-range (ts-range &optional keyword)
   "
@@ -885,11 +888,11 @@ CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値から設定します
       (forward-line)
       (if (org-looking-at-p org-planning-line-re)
           (if (re-search-forward (format "\\<%s: *" (or keyword "SCHEDULED")) (line-end-position) t)
-              (let ((elem (cadr (org-element-timestamp-parser))))
-                (if elem
+              (let ((ts-node (org-element-timestamp-parser)))
+                (if ts-node
                     (progn
-                      (let ((begin (plist-get elem :begin))
-                            (end (plist-get elem :end)))
+                      (let ((begin (org-element-property :begin ts-node))
+                            (end (org-element-property :end ts-node)))
                         ;; keep trailing spaces
                         (while (and (> end begin)
                                     (member (buffer-substring-no-properties (1- end) end) '(" " "\t")))
@@ -1635,22 +1638,22 @@ TS-ENDの直後にある#(で始まるリストとその範囲を返します。
                 (end (point)))
             (list object begin end)))))))
 
-(defun gcal-ts-get-additional-properties (ts)
+(defun gcal-ts-get-additional-properties (ts-node)
   "Returns a list starting with #( immediately after the timestamp TS.
 
 [lang:ja]
 タイムスタンプ直後にある#(で始まるリストを返します。"
   (car
    (gcal-ts-get-additional-properties-range
-    (plist-get ts :end))))
+    (org-element-property :end ts-node))))
 
-(defun gcal-ts-get-additional-property (ts key)
+(defun gcal-ts-get-additional-property (ts-node key)
   "Get a value of property KEY from the list starting with #(
 immediately after the timestamp TS.
 
 [lang:ja]
 タイムスタンプ直後にある#(で始まるリストからプロパティを取得します。"
-  (plist-get (gcal-ts-get-additional-properties ts) key))
+  (plist-get (gcal-ts-get-additional-properties ts-node) key))
 
 (defun gcal-ts-set-additional-property (ts-end key value)
   "Set a property KEY to VALUE in the list starting with #(
