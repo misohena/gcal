@@ -24,7 +24,9 @@
 
 ;;; Code:
 
+(require 'subr-x)
 (require 'calendar)
+(require 'parse-time)
 
 
 (defun gcal-recur-between (recurrence
@@ -576,7 +578,7 @@
   (and (car ymd) (cadr ymd) (caddr ymd)))
 
 (defun gcal-recur-ymd-list-fulldate-p (ymd-list)
-  (not (seq-some (lambda (ymd) (not (gcal-recur-ymd-complete-p ymd))) ymd-list)))
+  (not (seq-some (lambda (ymd) (not (gcal-recur-ymd-fulldate-p ymd))) ymd-list)))
 ;;TEST: (gcal-recur-ymd-list-fulldate-p '((2021 2 16) (2021 2 17) (2021 2 18))) => t
 ;;TEST: (gcal-recur-ymd-list-fulldate-p '((2021 2 nil) (2021 2 nil) (2021 2 nil))) => nil
 
