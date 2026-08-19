@@ -395,7 +395,7 @@ Same as `let' if no asynchronous processing is performed."
 
 (defun gcal-url-retrieve--call (request status)
   (with-slots (buffer cbargs) request
-    (when-let ((callback (oref request callback)))
+    (when-let* ((callback (oref request callback)))
       (oset request callback nil) ;; Prevent double calls
 
       (with-current-buffer
@@ -406,8 +406,8 @@ Same as `let' if no asynchronous processing is performed."
         (apply callback status cbargs)))))
 
 (defun gcal-url-retrieve--kill-all-timeout-requests ()
-  (when-let ((timeout-requests (seq-filter #'gcal-url-retrieve--timeout-p
-                                           gcal-url-retrieve--running)))
+  (when-let* ((timeout-requests (seq-filter #'gcal-url-retrieve--timeout-p
+                                            gcal-url-retrieve--running)))
     (unwind-protect
         (dolist (request timeout-requests)
           (gcal-url-retrieve--kill request)
@@ -530,7 +530,7 @@ return the request itself without sending it.")
     (let ((buffer (current-buffer)))
       (unwind-protect
           (let* ((response
-                  (if-let ((err (plist-get status :error)))
+                  (if-let* ((err (plist-get status :error)))
                       ;; Error!
                       (progn
                         (message
@@ -1389,7 +1389,7 @@ required if you want to include time in repeated events."
     (cons
      (if date-only 'dateTime 'date)
      nil))
-   (when-let ((name (gcal-time-zone-name-default)))
+   (when-let* ((name (gcal-time-zone-name-default)))
      (list (cons 'timeZone name)))))
 
 

@@ -650,7 +650,7 @@
   (let (result)
     (dolist (l l-list)
       (dolist (r r-list)
-        (if-let ((ymd (gcal-recur-ymd-mix l r)))
+        (if-let* ((ymd (gcal-recur-ymd-mix l r)))
             (push ymd result))))
     (nreverse result)))
 ;;TEST: (gcal-recur-ymd-list-make-combination '((2021 2 nil) (2021 4 nil)) '((2021 2 10) (2021 3 10) (2021 4 10) (2021 5 10))) => ((2021 2 10) (2021 4 10))
@@ -825,7 +825,7 @@
        (lambda (weekdaynum)
          (when (string-match "\\([-+]?[0-9]+\\)?\\([A-Z][A-Z]\\)" weekdaynum)
            (cons
-            (if-let ((num (match-string 1 weekdaynum)))
+            (if-let* ((num (match-string 1 weekdaynum)))
                 (string-to-number num))
             (gcal-recur-parse-weekday (match-string 2 weekdaynum)))))
        (split-string str " *, *")))))
@@ -868,10 +868,10 @@
 (defun gcal-recur-rrule-wkst (rules)
   (gcal-recur-parse-weekday (or (cdr (assoc "WKST" rules)) "MO"))) ;;default=MO(1)
 (defun gcal-recur-rrule-count (rules)
-  (when-let ((str (cdr (assoc "COUNT" rules))))
+  (when-let* ((str (cdr (assoc "COUNT" rules))))
     (string-to-number str)))
 (defun gcal-recur-rrule-until (rules time-zone)
-  (when-let ((str (cdr (assoc "UNTIL" rules))))
+  (when-let* ((str (cdr (assoc "UNTIL" rules))))
     (save-match-data
       (if (string-match "\\`\\([0-9][0-9][0-9][0-9]\\)-?\\([0-9][0-9]\\)-?\\([0-9][0-9]\\)\\'" str)
           ;;date only
@@ -892,7 +892,7 @@
 ;;
 
 (defun gcal-string-divide (string divider)
-  (if-let ((pos (seq-position string divider)))
+  (if-let* ((pos (seq-position string divider)))
       (cons (substring string 0 pos)
             (substring string (1+ pos)))
     (cons string nil)))

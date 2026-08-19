@@ -176,7 +176,7 @@ from that buffer.
 すでにFILEに関連付けられているファイルがある場合は、そのバッファ
 から集めます。"
   ;;@todo Use temporary buffer when not visiting file ?
-  ;; (if-let ((buffer (get-file-buffer file)))
+  ;; (if-let* ((buffer (get-file-buffer file)))
   ;;     (with-current-buffer buffer
   ;;       (gcal-org-parse-buffer))
   ;;   (with-temp-buffer
@@ -352,16 +352,16 @@ HEADER-MAXIMUMの深さまで、PATHをSEPARATORで繋げます。"
                   path))))
 
 (defun gcal-org-make-recurrence (ts-node)
-  (if-let ((repeater-type (org-element-property :repeater-type ts-node))
-           (repeater-unit (org-element-property :repeater-unit ts-node))
-           (repeater-value (org-element-property :repeater-value ts-node))
-           (repeater-unit-str (cdr (assq
-                                    repeater-unit
-                                    '((hour . "HOURLY")
-                                      (day . "DAILY")
-                                      (week . "WEEKLY")
-                                      (month . "MONTHLY")
-                                      (year . "YEARLY"))))))
+  (if-let* ((repeater-type (org-element-property :repeater-type ts-node))
+            (repeater-unit (org-element-property :repeater-unit ts-node))
+            (repeater-value (org-element-property :repeater-value ts-node))
+            (repeater-unit-str (cdr (assq
+                                     repeater-unit
+                                     '((hour . "HOURLY")
+                                       (day . "DAILY")
+                                       (week . "WEEKLY")
+                                       (month . "MONTHLY")
+                                       (year . "YEARLY"))))))
       ;;@todo check repeater-type? + 'cumulate ++ 'catch-up .+ 'restart
       (if (and repeater-unit-str
                (>= repeater-value 1))
@@ -957,7 +957,7 @@ CLOSED,DEADLINE,SCHEDULEDのプロパティ値をgcal-ts値から設定します
                (cons "%{ts-end}" (gcal-oevent-ts-end oevent))
                (cons "%{ts-prefix}" (gcal-oevent-ts-prefix oevent))
                (cons "%{ts-prefix-colon}"
-                     (if-let ((ts-prefix (gcal-oevent-ts-prefix oevent)))
+                     (if-let* ((ts-prefix (gcal-oevent-ts-prefix oevent)))
                          (concat ts-prefix ": ")))
                (cons "%{location}" location)
                (cons "%{propname-location-br}"
@@ -1393,9 +1393,9 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
   (gcal-events-update calendar-id (gcal-oevent-gevent-id oevent) (gcal-oevent-to-gevent oevent)))
 
 (defun gcal-oevent-patch (calendar-id old-oevent new-oevent)
-  (if-let ((delta-gevent (gcal-org-diff-gevents
-                          (gcal-oevent-to-gevent old-oevent)
-                          (gcal-oevent-to-gevent new-oevent))))
+  (if-let* ((delta-gevent (gcal-org-diff-gevents
+                           (gcal-oevent-to-gevent old-oevent)
+                           (gcal-oevent-to-gevent new-oevent))))
       (progn
         (gcal-log "gcal-oevent-patch delta=%s" delta-gevent)
         ;;[Async]
@@ -1543,7 +1543,7 @@ base32hexに変換したときに ID に戻らないなら(不可逆なら) t �
 タイムスタンプ文字列TS-STRにRECURRENCEから生成したリピーターを付
 加したものを返します。"
   (if recurrence
-      (if-let ((repeater (gcal-ts-repeater-from-recurrence recurrence)))
+      (if-let* ((repeater (gcal-ts-repeater-from-recurrence recurrence)))
           (concat
            (substring ts-str 0 -1)
            repeater
@@ -1579,14 +1579,14 @@ RECURRENCEをタイムスタンプのリピーター部分に変換します。
                   str))
             (let ((freq (match-string 1 str))
                   (interval (match-string 3 str)))
-              (if-let ((repeater-suffix
-                        (cdr
-                         ;; "SECONDLY" "MINUTELY" are not supported
-                         (assoc freq '(("HOURLY" . "h")
-                                       ("DAILY" . "d")
-                                       ("WEEKLY" . "w")
-                                       ("MONTHLY" . "m")
-                                       ("YEARLY" . "y"))))))
+              (if-let* ((repeater-suffix
+                         (cdr
+                          ;; "SECONDLY" "MINUTELY" are not supported
+                          (assoc freq '(("HOURLY" . "h")
+                                        ("DAILY" . "d")
+                                        ("WEEKLY" . "w")
+                                        ("MONTHLY" . "m")
+                                        ("YEARLY" . "y"))))))
 
                   (concat " +" (or interval "1") repeater-suffix)))))))
 ;;(gcal-ts-repeater-from-recurrence ["RRULE:FREQ=DAILY;INTERVAL=2"]) => " +2d"
@@ -1684,7 +1684,7 @@ TS-ENDの直後にある#(で始まるリストにプロパティを設定しま
 
 [lang:ja]
 TS-END直後にある#(で始まるリストからプロパティを削除します。"
-  (if-let ((plist-range (gcal-ts-get-additional-properties-range ts-end)))
+  (if-let* ((plist-range (gcal-ts-get-additional-properties-range ts-end)))
       (let ((plist (car plist-range))
             (begin (cadr plist-range))
             (end (caddr plist-range)))
